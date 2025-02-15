@@ -1,0 +1,113 @@
+# Snakefile
+
+rule all:
+    input:
+        "output/inferred/inferred_lineages.json",
+        "output/inferred/optimization_results.csv",
+        "output/inferred/inferred_lineages_controls.json",
+        "output/inferred/optimization_results_controls.csv",
+        "output/analysis/breakpoint_distances.png",
+        "output/analysis/correct_vs_hamming.png",
+        "output/analysis/first_20_true_and_inferred.png",
+
+rule filter_England_data:
+    message: "Filtering the sequences from England between December 2022 and February 2023 from all SARS-CoV-2 sequences."
+    input:
+        fasta="../data/aligned.fasta.zst", 
+        metadata="../data/metadata.tsv.zst"
+    output:
+        output_path="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.fasta",
+        output_metadata_path="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.metadata.tsv"
+    conda: "../envs/nextstrain.yaml"
+    shell:
+        """
+        augur filter \
+            --metadata {input.metadata} \
+            --sequences {input.fasta} \
+            --min-date 2022-11-29 \
+            --max-date 2023-02-27 \
+            --query "division == 'England'" \
+            --output {output.output_path} \
+            --output-metadata {output.output_metadata_path}
+        """
+
+rule collapse_lineages:
+    message: "Collapsing Pango lineages within the reference set and creating a CSV file of Pango lineages and their corresponding sequences."
+    input:
+        fasta="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.fasta", 
+        metadata="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.metadata.tsv"
+    output:
+        output_path="output/seq_pango_sorted.csv"
+    shell:
+        """
+        python3 ../code/collapse_lineages.py --fasta {input.fasta} --metadata {input.metadata} --trim 0 --collapse_threshold 300 \
+            --out {output.output_path}
+        """
+
+rule get_allele_freq:
+    message: "Obtaining matrix of allele frequencies from the reference set. Allele frequencies are by position and the clustered Pango lineages."
+    input:
+        data="output/seq_pango_sorted.csv"
+    output:
+        output_path="output/allele_freq_matrix.csv"
+    shell:
+        """
+        python3 ../code/get_allele_freq.py --csv {input.data} --out {output.output_path}
+        """
+
+rule sim_sequences:
+    message: "Simulating recombinant and control sequences."
+    input:
+        data="output/seq_pango_sorted.csv"
+    output:
+        "output/simulated_sequences/recombinants.csv",
+        "output/simulated_sequences/sampled_sequences.csv",
+        "output/simulated_sequences/breakpoints.csv",
+        "output/simulated_sequences/controls.csv",
+        "output/simulated_sequences/sampled_sequences_control.csv"
+    shell:
+        """
+        python3 sim_sequences.py --csv {input.data} --rate 0.0002 --n_single 500 --n_double 500 --n_control 1000 --no-plot
+        """
+
+rule run_HMM:
+    message: "Running the hidden Markov model to infer the parental lineages for the simulated recombinant sequences."
+    input:
+        freq="output/allele_freq_matrix.csv",
+        test="output/simulated_sequences/recombinants.csv"
+    output:
+        out="output/inferred/inferred_lineages.json",
+        optim_out="output/inferred/optimization_results.csv"
+    shell:
+        """
+        python3 ../code/run_HMM.py --freq {input.freq} --test {input.test} --out {output.out} --optim_out {output.optim_out}
+        """
+
+rule run_HMM_controls:
+    message: "Running the hidden Markov model to infer the parental lineages for the simulated control sequences."
+    input:
+        freq="output/allele_freq_matrix.csv",
+        test="output/simulated_sequences/controls.csv"
+    output:
+        out="output/inferred/inferred_lineages_controls.json",
+        optim_out="output/inferred/optimization_results_controls.csv"
+    shell:
+        """
+        python3 ../code/run_HMM.py --freq {input.freq} --test {input.test} --out {output.out} --optim_out {output.optim_out}
+        """
+
+rule analyze_sim_results:
+    message: "Analyzing simulation results."
+    input:
+        "output/inferred/inferred_lineages.json",
+        "output/inferred/optimization_results.csv",
+        "output/inferred/inferred_lineages_controls.json",
+        "output/inferred/optimization_results_controls.csv"
+    output:
+        "output/analysis/breakpoint_distances.png",
+        "output/analysis/correct_vs_hamming.png",
+        "output/analysis/first_20_true_and_inferred.png",
+    shell:
+        """
+        python3 analyze_sim_results.py
+        """
