@@ -7,9 +7,23 @@ from scipy.optimize import minimize
 import multiprocessing
 from Bio import SeqIO
 import json
+import random
+import gzip
+
+random.seed(4815162342)
 
 # Define dictionary between nucleotides and integers
 allele_order = {'A': 0, 'T': 1, 'C': 2, 'G': 3, 'N': 4}
+
+# Sample from list of sequences
+def sample_sequences(sequences, sample_size):
+    n = len(sequences)
+    
+    if n < sample_size:
+        return sequences
+    
+    if n >= sample_size:
+        return random.sample(sequences, sample_size) 
 
 # Function to remove consecutive duplicates (e.g. [a,a,a,b,b,c] becomes [a,b,c])
 def remove_consecutive_duplicates(lst):
@@ -32,9 +46,9 @@ def find_parental_clusters(recombinant_numbers, freq, index_to_pango):
     # Perform the minimization
     print("starting optimization")
     result = minimize(nll, initial_guess, args=(recombinant_numbers, freq), 
-                      bounds=[(0.00001, 5), (0.001, 1)], method='L-BFGS-B')
+                      bounds=[(1e-8, 5), (0.001, 1)], method='L-BFGS-B')
     result_null_model = minimize(nll_sigma_1, initial_guess[0], args=(recombinant_numbers, freq), 
-                      bounds=[(0.00001, 5)], method='L-BFGS-B')
+                      bounds=[(1e-8, 5)], method='L-BFGS-B')
     print("optimal solution (e and s): {}".format(result.x))
     est_e = result.x[0]
     est_s = result.x[1]
@@ -43,8 +57,10 @@ def find_parental_clusters(recombinant_numbers, freq, index_to_pango):
     print("starting Viterbi")
     q_star, delta = viterbi_haplotype_states(recombinant_numbers, freq, est_s, est_e)
     q_star_group = np.array([index_to_pango[int(num)] for num in q_star])
+    print("calculating MMPP")
+    mmpp = get_mmpp(recombinant_numbers, freq, est_s, est_e)
 
-    return est_e, est_s, -result.fun, -result_null_model.fun, q_star_group
+    return est_e, est_s, -result.fun, -result_null_model.fun, mmpp, q_star_group
 
 # Create a parser
 parser = argparse.ArgumentParser(description="Generate an allele frequency matrix for Pango lineages.")
@@ -54,22 +70,56 @@ parser.add_argument("--freq", type=str, required=True, help="path to allele freq
 parser.add_argument("--test", type=str, required=True, help="path to list of sequences we want to infer parental lineages")
 parser.add_argument("--out", type=str, required=True, help="output path (json)")
 parser.add_argument("--optim_out", type=str, required=True, help="output path for optimization results")
+parser.add_argument("--sample_size", type=int, default=10**8, help="maximum number of sequences in the test set")
 # parser.add_argument("--plot", type=bool, default=False, help="specify whether to plot the inferred hidden states")
 # parser.add_argument("--plot_out", type=str, default="../output/inferred/inferred_lineages.png", help="path for saving plot")
 
 # Parse the arguments
 args = parser.parse_args()
 
+# Print arguments one by one
+print("freq:")
+print(args.freq)
+print()
+
+print("test:")
+print(args.test)
+print()
+
+print("out:")
+print(args.out)
+print()
+
+print("optim_out:")
+print(args.optim_out)
+print()
+
+print("sample_size:")
+print(args.sample_size)
+print()
+
 # Read allele frequencies and test set
 freq = pd.read_csv(args.freq).to_numpy()
 
 if args.test.endswith(".csv"):
     test = pd.read_csv(args.test, header=None).to_numpy().tolist()
-elif args.test.endswith(".fasta"):
-    test = [[allele_order.get(nuc if nuc in "ATCG" else "N", 4) for nuc in str(record.seq).upper()] for record in SeqIO.parse(args.test, "fasta")]
+elif args.test.endswith(".fasta") or args.test.endswith(".fasta.gz"):
+    if args.test.endswith(".fasta.gz"):
+        with gzip.open(args.test, "rt") as handle:
+            records = list(SeqIO.parse(handle, "fasta"))  # Convert to list before file closes
+    else:
+        with open(args.test, "rt") as handle:
+            records = list(SeqIO.parse(handle, "fasta"))  # Convert to list before file closes
+
+    #print(f"Read {len(records)} sequences.")  # Debugging: check number of sequences loaded
+
+    test = [[allele_order.get(nuc if nuc in "ATCG" else "N", 4) for nuc in str(record.seq).upper()] for record in records]
 else:
-    print("Error: test file must be a FASTA file.")
-    sys.exit() 
+    print("Error: test file must be a CSV or FASTA file.")
+    sys.exit()
+    
+# Sample from sequences if sample size is smaller than the number of sequences
+test = sample_sequences(test, args.sample_size)
 
 # Obtain the list of Pango lineages in the first column of the allele frequency matrix (in the order in which they appear)
 pango_lineages = freq[:,0]
@@ -83,7 +133,7 @@ find_parental_clusters_partial = partial(find_parental_clusters, freq=freq, inde
 
 # Use Pool to parallelize the process
 if __name__ == '__main__':
-    print(f"Analyzing {len(test)} Sequences.")
+    #print(f"Analyzing {len(test)} Sequences.")
     # Get cpu count
     cpu_count = multiprocessing.cpu_count()-1
     # Create a pool of worker processes
@@ -92,14 +142,14 @@ if __name__ == '__main__':
         results = pool.map(find_parental_clusters_partial, test)
 
     # Extract only the first four elements from each result
-    optimization_results = [res[:4] for res in results]
+    optimization_results = [res[:5] for res in results]
     # Create DataFrame
-    res_df = pd.DataFrame(optimization_results, columns=["est_e", "est_s", "log_likelihood", "log_likelihood_null"])
+    res_df = pd.DataFrame(optimization_results, columns=["est_e", "est_s", "log_likelihood", "log_likelihood_null", "mmpp"])
     # Save to a CSV file
     res_df.to_csv(args.optim_out, index=False)
 
     # Get inferred sequences of hidden states
-    inferred_seq = [res[4] for res in results]
+    inferred_seq = [res[5] for res in results]
 
     # Get a representation of each sequence
     res_list = []
@@ -107,7 +157,7 @@ if __name__ == '__main__':
         temp = remove_consecutive_duplicates(inferred_seq[i])
         res_list.append(temp)
 
-    res_dict = {f"ID{i+1}": v for i, v in enumerate(res_list)}
+    res_dict = {"ID{}".format(i + 1): v for i, v in enumerate(res_list)}
 
     # Save to JSON file
     with open(args.out, "w") as f:

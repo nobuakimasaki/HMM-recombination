@@ -1,4 +1,5 @@
 from collapse_lineage_counts import *
+import gzip
 import argparse
 import pandas as pd
 import numpy as np
@@ -21,7 +22,10 @@ args = parser.parse_args()
 # Function to read a FASTA file and save contents into a DataFrame
 def fasta_to_dataframe(file_path):
     records = []
-    with open(file_path, 'r') as fasta_file:
+    # Choose the appropriate open method based on file extension
+    open_func = gzip.open if file_path.endswith('.gz') else open
+
+    with open_func(file_path, 'rt') as fasta_file:
         for record in SeqIO.parse(fasta_file, "fasta"):
             records.append([record.id, str(record.seq), record.description])
 
@@ -35,9 +39,9 @@ meta = pd.read_csv(args.metadata, sep='\t')
 seq = fasta_to_dataframe(args.fasta)
 
 # Get the strain and pango information from the metadata and inner join sequences
-meta_pango = meta[['strain', 'Nextclade_pango', 'location', 'date']]
+meta_pango = meta[['strain', 'Nextclade_pango', 'date']]
 seq_pango = pd.merge(meta_pango, seq, left_on='strain', right_on='ID', how='inner')
-seq_pango = seq_pango[['ID', 'Nextclade_pango', 'location', 'date', 'Sequence']]
+seq_pango = seq_pango[['ID', 'Nextclade_pango', 'date', 'Sequence']]
 
 # Convert the 'date' column to datetime
 seq_pango['date'] = pd.to_datetime(seq_pango['date'])
@@ -75,9 +79,7 @@ pango_counts = pango_counts.rename(columns={'variant': 'collapsed', 'Count': 'se
 pango_dict = pd.concat([original_pango_counts, pango_counts], axis=1)[['variant', 'collapsed']]
 
 # Join collapsed lineages to the sequence file
-seq_pango_sorted = pd.merge(seq_pango_sorted, pango_dict, left_on='Nextclade_pango', right_on='variant', how='inner')[['ID', 'Nextclade_pango', 'collapsed', 'location', 'date', 'Trimmed']]
+seq_pango_sorted = pd.merge(seq_pango_sorted, pango_dict, left_on='Nextclade_pango', right_on='variant', how='inner')[['ID', 'Nextclade_pango', 'collapsed', 'date', 'Trimmed']]
 
 # Write sequence file
-seq_pango_sorted.to_csv(args.out, index=False)
-
-
+seq_pango_sorted.to_csv(args.out, index=False, compression='gzip')

@@ -2,42 +2,74 @@
 
 rule all:
     input:
+        "output/allele_freq_matrix.csv",
+        "output/simulated_sequences/recombinants.csv",
         "output/inferred/inferred_lineages.json",
-        "output/inferred/optimization_results.csv",
         "output/inferred/inferred_lineages_controls.json",
-        "output/inferred/optimization_results_controls.csv",
-        "output/analysis/breakpoint_distances.png",
-        "output/analysis/correct_vs_hamming.png",
-        "output/analysis/first_20_true_and_inferred.png",
+        "output/results/breakpoint_distance_by_count.png"
+
+        # "output/inferred/inferred_lineages.json",
+        # "output/inferred/optimization_results.csv",
+        # "output/inferred/inferred_lineages_controls.json",
+        # "output/inferred/optimization_results_controls.csv",
+        # "output/analysis/breakpoint_distances.png",
+        # "output/analysis/correct_vs_hamming.png",
+        # "output/analysis/first_20_true_and_inferred.png",
 
 rule filter_England_data:
-    message: "Filtering the sequences from England between December 2022 and February 2023 from all SARS-CoV-2 sequences."
+    message: "Filtering the sequences from England between September 2020 and March 2023 from all SARS-CoV-2 sequences."
     input:
         fasta="../data/aligned.fasta.zst", 
         metadata="../data/metadata.tsv.zst"
     output:
-        output_path="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.fasta",
-        output_metadata_path="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.metadata.tsv"
+        output_path="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.fasta",
+        output_metadata_path="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.metadata.tsv"
     conda: "../envs/nextstrain.yaml"
     shell:
         """
         augur filter \
             --metadata {input.metadata} \
             --sequences {input.fasta} \
-            --min-date 2022-11-29 \
-            --max-date 2023-02-27 \
+            --min-date 2020-09-01 \
+            --max-date 2023-03-31 \
             --query "division == 'England'" \
             --output {output.output_path} \
             --output-metadata {output.output_metadata_path}
         """
 
-rule collapse_lineages:
-    message: "Collapsing Pango lineages within the reference set and creating a CSV file of Pango lineages and their corresponding sequences."
+rule get_reference_metadata:
+    message: "Obtaining reference IDs and dates from England data between 2022-11-19 and 2022-12-18."
     input:
-        fasta="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.fasta", 
-        metadata="output/aligned.min-date.2022-11-29.max-date.2023-02-27.division.England.metadata.tsv"
+        metadata="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.metadata.tsv"
     output:
-        output_path="output/seq_pango_sorted.csv"
+        output_metadata="output/sliding_windows/ref_2022-11-19_2022-12-18.metadata.tsv",
+        output_id="output/sliding_windows/ref_2022-11-19_2022-12-18.txt"
+    shell:
+        """
+        tsv-select -f 1,7,10,35 {input.metadata} | \
+            tsv-filter --header --str-ge 2:2022-11-19 --str-le 2:2022-12-18 > {output.output_metadata} && \
+        tsv-select -f 1 {output.output_metadata} | tsv-sample -n 100000 --seed-value 26 > {output.output_id}
+        """
+
+rule get_reference_fasta:
+    message: "Obtaining reference sequences from England data between 2022-11-19 and 2022-12-18."
+    input:
+        fasta="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.fasta",
+        ids="output/sliding_windows/ref_2022-11-19_2022-12-18.txt"
+    output:
+        output_path="output/sliding_windows/ref_2022-11-19_2022-12-18.fasta.gz"
+    shell:
+        """
+        seqkit grep -f {input.ids} {input.fasta} | gzip > {output.output_path}
+        """
+
+rule collapse_lineages:
+    message: "Collapsing Pango lineages for ref_2022-11-19_2022-12-18."
+    input:
+        fasta="output/sliding_windows/ref_2022-11-19_2022-12-18.fasta.gz",
+        metadata="output/sliding_windows/ref_2022-11-19_2022-12-18.metadata.tsv"
+    output:
+        output_path="output/sliding_windows/seq_pango_sorted_2022-11-19_2022-12-18.csv.gz"
     shell:
         """
         python3 ../code/collapse_lineages.py --fasta {input.fasta} --metadata {input.metadata} --trim 0 --collapse_threshold 300 \
@@ -45,9 +77,9 @@ rule collapse_lineages:
         """
 
 rule get_allele_freq:
-    message: "Obtaining matrix of allele frequencies from the reference set. Allele frequencies are by position and the clustered Pango lineages."
+    message: "Obtaining matrix of allele frequencies from the reference set."
     input:
-        data="output/seq_pango_sorted.csv"
+        data="output/sliding_windows/seq_pango_sorted_2022-11-19_2022-12-18.csv.gz"
     output:
         output_path="output/allele_freq_matrix.csv"
     shell:
@@ -58,7 +90,7 @@ rule get_allele_freq:
 rule sim_sequences:
     message: "Simulating recombinant and control sequences."
     input:
-        data="output/seq_pango_sorted.csv"
+        data="output/sliding_windows/seq_pango_sorted_2022-11-19_2022-12-18.csv.gz"
     output:
         "output/simulated_sequences/recombinants.csv",
         "output/simulated_sequences/sampled_sequences.csv",
@@ -67,7 +99,7 @@ rule sim_sequences:
         "output/simulated_sequences/sampled_sequences_control.csv"
     shell:
         """
-        python3 sim_sequences.py --csv {input.data} --rate 0.0002 --n_single 500 --n_double 500 --n_control 1000 --no-plot
+        python3 sim_sequences.py --csv {input.data} --rate 0.0002 --n_single 100 --n_double 100 --n_control 800 --no-plot
         """
 
 rule run_HMM:
@@ -102,11 +134,12 @@ rule analyze_sim_results:
         "output/inferred/inferred_lineages.json",
         "output/inferred/optimization_results.csv",
         "output/inferred/inferred_lineages_controls.json",
-        "output/inferred/optimization_results_controls.csv"
+        "output/inferred/optimization_results_controls.csv",
     output:
-        "output/analysis/breakpoint_distances.png",
-        "output/analysis/correct_vs_hamming.png",
-        "output/analysis/first_20_true_and_inferred.png",
+        "output/results/breakpoint_distance_by_count.png",
+        "output/results/sens_vs_hamming.png",
+        "output/results/first_20_true_and_inferred.png",
+        "output/results/breakpoint_confusion_matrix.csv"
     shell:
         """
         python3 analyze_sim_results.py

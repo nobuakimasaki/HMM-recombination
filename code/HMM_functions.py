@@ -56,6 +56,22 @@ def forward_scaled_matrix(target, ref, e, s):
     # The scaling factor can be used to obtain the log-likelihood (see https://courses.grainger.illinois.edu/ece417/fa2020/slides/lec14.pdf)    
     return g, alpha_hat
 
+### Function for backward probabilities (only used to calculate the MMPP)
+def backward_scaled_matrix(target, ref, e, s, g):
+    ref = calculate_emission(ref, e)
+    N = int(ref.shape[0]/4)
+    T = len(target)
+    A = get_transition_prob(N, s)
+    
+    beta_hat = np.zeros((N, T))
+    beta_hat[:, -1] = 1  # Initialization (scaled)
+    
+    for t in range(T-2, -1, -1):
+        b_jt1 = np.array([get_emission_prob(j, t+1, target[t+1], ref) for j in range(N)])
+        beta_hat[:, t] = A @ (b_jt1 * beta_hat[:, t+1]) / g[t]
+    
+    return beta_hat
+
 ### Organize allele frequencies to emission matrix
 def calculate_emission(original_ref, e):
     ref = original_ref.copy()
@@ -164,3 +180,19 @@ def viterbi_haplotype_states(target, ref, s, e):
         q_star[t] = psi[int(q_star[t+1]), t+1]
         
     return q_star, delta
+
+### Function to compute the MMPP
+def compute_mmpp(alpha_hat, beta_hat):
+    posterior = alpha_hat * beta_hat  # elementwise multiplication
+    posterior /= posterior.sum(axis=0)  # normalize each column to sum to 1
+    
+    max_posteriors = np.max(posterior, axis=0)  # max over lineages at each position
+    mmpp = np.mean(max_posteriors)
+    return mmpp
+
+### Wrapper function to compute the MMPP
+def get_mmpp(target, ref, s, e):
+    g, alpha_hat = forward_scaled_matrix(target, ref, e, s)
+    beta_hat = backward_scaled_matrix(target, ref, e, s, g)
+    mmpp = compute_mmpp(alpha_hat, beta_hat)
+    return mmpp
