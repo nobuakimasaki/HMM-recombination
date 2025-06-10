@@ -2,19 +2,9 @@
 
 rule all:
     input:
-        "output/allele_freq_matrix.csv",
-        "output/simulated_sequences/recombinants.csv",
-        "output/inferred/inferred_lineages.json",
-        "output/inferred/inferred_lineages_controls.json",
-        "output/results/breakpoint_distance_by_count.png"
-
-        # "output/inferred/inferred_lineages.json",
-        # "output/inferred/optimization_results.csv",
-        # "output/inferred/inferred_lineages_controls.json",
-        # "output/inferred/optimization_results_controls.csv",
-        # "output/analysis/breakpoint_distances.png",
-        # "output/analysis/correct_vs_hamming.png",
-        # "output/analysis/first_20_true_and_inferred.png",
+        "output/results/breakpoint_boxplot.png",
+        "output/results/first_20_true_and_inferred.png",
+        "output/results/sens_vs_edits.png"
 
 rule filter_England_data:
     message: "Filtering the sequences from England between September 2020 and March 2023 from all SARS-CoV-2 sequences."
@@ -136,10 +126,9 @@ rule analyze_sim_results:
         "output/inferred/inferred_lineages_controls.json",
         "output/inferred/optimization_results_controls.csv",
     output:
-        "output/results/breakpoint_distance_by_count.png",
-        "output/results/sens_vs_hamming.png",
+        "output/results/breakpoint_boxplot.png",
         "output/results/first_20_true_and_inferred.png",
-        "output/results/breakpoint_confusion_matrix.csv"
+        "output/results/sens_vs_edits.png"
     shell:
         """
         python3 analyze_sim_results.py
