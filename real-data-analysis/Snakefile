@@ -1,35 +1,31 @@
-# Snakefile
-
 date_ranges = config["date_ranges"]
 
 rule all:
     input: 
-        expand("output/sliding_windows/test_{test_min}_{test_max}.fasta.gz", zip,
-                test_min=[d["test"][0] for d in date_ranges],
-                test_max=[d["test"][1] for d in date_ranges]),
-        expand("output/sliding_windows/ref_{ref_min}_{ref_max}.fasta.gz", zip,
-                ref_min=[d["reference"][0] for d in date_ranges],
-                ref_max=[d["reference"][1] for d in date_ranges]),
-        expand("output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.fasta.gz", zip,
-                ref_min=[d["reference"][0] for d in date_ranges],
-                ref_max=[d["reference"][1] for d in date_ranges]),
-        expand("output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.fasta.gz", zip,
-                ref_min=[d["reference"][0] for d in date_ranges],
-                ref_max=[d["reference"][1] for d in date_ranges]),
-        expand("output/inferred/optimization_results_{ref_min}_{ref_max}_{test_min}_{test_max}.csv", zip,
+        expand("output/inferred/inferred_lineages_{ref_min}_{ref_max}_{test_min}_{test_max}.json", zip,
                 ref_min=[d["reference"][0] for d in date_ranges],
                 ref_max=[d["reference"][1] for d in date_ranges],
                 test_min=[d["test"][0] for d in date_ranges],
-                test_max=[d["test"][1] for d in date_ranges])
+                test_max=[d["test"][1] for d in date_ranges]),
+        expand("output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv.gz", zip,
+               ref_min=[d["reference"][0] for d in date_ranges],
+               ref_max=[d["reference"][1] for d in date_ranges])
+        # expand("output/sliding_windows/test_{test_min}_{test_max}.fasta.gz", zip,
+        #        test_min=[d["test"][0] for d in date_ranges],
+        #        test_max=[d["test"][1] for d in date_ranges]),
+        # expand("output/sliding_windows/ref_{ref_min}_{ref_max}.fasta.gz", zip,
+        #        ref_min=[d["reference"][0] for d in date_ranges],
+        #        ref_max=[d["reference"][1] for d in date_ranges])
+        # "output/collapse_dict.csv"
 
 rule filter_England_data:
-    message: "Filtering the sequences from England between September 2020 and March 2023 from all SARS-CoV-2 sequences."
+    message: "Filtering the sequences from England between September 2020 and March 2024 from all SARS-CoV-2 sequences."
     input:
         fasta="../data/aligned.fasta.zst", 
         metadata="../data/metadata.tsv.zst"
     output:
-        output_path="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.fasta",
-        output_metadata_path="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.metadata.tsv"
+        output_path="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta",
+        output_metadata_path="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv"
     conda: "../envs/nextstrain.yaml"
     shell:
         """
@@ -37,96 +33,125 @@ rule filter_England_data:
             --metadata {input.metadata} \
             --sequences {input.fasta} \
             --min-date 2020-09-01 \
-            --max-date 2023-03-31 \
+            --max-date 2024-03-31 \
             --query "division == 'England'" \
             --output {output.output_path} \
             --output-metadata {output.output_metadata_path}
         """
 
+rule compress_england_data:
+    threads: 6
+    message: "Compressing the filtered England sequence and metadata files with pigz."
+    input:
+        fasta="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta",
+        metadata="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv"
+    output:
+        fasta_gz="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta.gz",
+        metadata_gz="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.gz"
+    shell:
+        """
+        pigz -p {threads} -c {input.fasta} > {output.fasta_gz}
+        pigz -p {threads} -c {input.metadata} > {output.metadata_gz}
+        """
+
 rule get_reference_metadata:
     message: "Obtaining sliding windows of reference IDs and dates from the England data."
     input:
-        metadata="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.metadata.tsv"
+        metadata="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.gz"
     output:
-        output_metadata="output/sliding_windows/ref_{ref_min}_{ref_max}.metadata.tsv",
-        output_id="output/sliding_windows/ref_{ref_min}_{ref_max}.txt"
+        output_metadata="output/sliding_windows/ref_{ref_min}_{ref_max}.metadata.tsv.gz",
+        output_id="output/sliding_windows/ref_{ref_min}_{ref_max}.txt.gz"
     shell:
         """
-        tsv-select -f 1,7,10,35 {input.metadata} | \
-            tsv-filter --header --str-ge 2:{wildcards.ref_min} --str-le 2:{wildcards.ref_max} > {output.output_metadata} && \
-        tsv-select -f 1 {output.output_metadata} | tsv-sample -n 100000 --seed-value 26 > {output.output_id}
+        gunzip -c {input.metadata} | \
+        tsv-select -f 1,7,10,35 | \
+        tsv-filter --header --str-ge 2:{wildcards.ref_min} --str-le 2:{wildcards.ref_max} | \
+        tee >(gzip > {output.output_metadata}) | \
+        tsv-select -f 1 | tsv-sample -n 100000 --seed-value 26 | gzip > {output.output_id}
         """
 
 rule get_test_metadata:
     message: "Obtaining sliding windows of test IDs and dates from the England data."
     input:
-        metadata="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.metadata.tsv"
+        metadata="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.gz"
     output:
-        output_metadata="output/sliding_windows/test_{test_min}_{test_max}.metadata.tsv",
-        output_id="output/sliding_windows/test_{test_min}_{test_max}.txt"
+        output_metadata="output/sliding_windows/test_{test_min}_{test_max}.metadata.tsv.gz",
+        output_id="output/sliding_windows/test_{test_min}_{test_max}.txt.gz"
     shell:
         """
-        tsv-select -f 1,7,10,35 {input.metadata} | \
-            tsv-filter --header --str-ge 2:{wildcards.test_min} --str-le 2:{wildcards.test_max} > {output.output_metadata} && \
-        tsv-select -f 1 {output.output_metadata} | tsv-sample -n 1000 --seed-value 26 > {output.output_id}
+        gunzip -c {input.metadata} | \
+        tsv-select -f 1,7,10,35 | \
+        tsv-filter --header --str-ge 2:{wildcards.test_min} --str-le 2:{wildcards.test_max} | \
+        tee >(gzip > {output.output_metadata}) | \
+        tsv-select -f 1 | tsv-sample -n 5000 --seed-value 26 | gzip > {output.output_id}
         """
 
 rule get_reference_fasta:
     message: "Obtaining sliding windows of reference sequences from the England data."
+    threads: 4
     input:
-        fasta="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.fasta",
-        ids="output/sliding_windows/ref_{ref_min}_{ref_max}.txt"
+        fasta="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta.gz",
+        ids="output/sliding_windows/ref_{ref_min}_{ref_max}.txt.gz"
     output:
         output_path="output/sliding_windows/ref_{ref_min}_{ref_max}.fasta.gz"
     shell:
         """
-        seqkit grep -f {input.ids} {input.fasta} | gzip > {output.output_path}
+        seqkit grep --threads {threads} -f {input.ids} {input.fasta} | gzip > {output.output_path}
         """
 
 rule get_test_fasta:
     message: "Obtaining sliding windows of test sequences from the England data."
+    threads: 4
     input:
-        fasta="output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.fasta",
-        ids="output/sliding_windows/test_{test_min}_{test_max}.txt"
+        fasta="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta.gz",
+        ids="output/sliding_windows/test_{test_min}_{test_max}.txt.gz"
     output:
         output_path="output/sliding_windows/test_{test_min}_{test_max}.fasta.gz"
     shell:
         """
-        seqkit grep -f {input.ids} {input.fasta} | gzip > {output.output_path}
+        seqkit grep --threads {threads} -f {input.ids} {input.fasta} | gzip > {output.output_path}
         """
 
 rule collapse_lineages:
     message: "Collapsing Pango lineages within the reference set and creating a CSV file of Pango lineages and their corresponding sequences."
-    input:
-        fasta="output/sliding_windows/ref_{ref_min}_{ref_max}.fasta.gz", 
-        metadata="output/sliding_windows/ref_{ref_min}_{ref_max}.metadata.tsv"
+    input: 
+        expand("output/sliding_windows/test_{test_min}_{test_max}.metadata.tsv.gz", zip,
+               test_min=[d["test"][0] for d in date_ranges],
+               test_max=[d["test"][1] for d in date_ranges]),
+        reference_metadata="output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.gz"
     output:
-        output_path="output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.csv.gz"
+        out="output/collapse_dict.csv"
     shell:
         """
-        python3 ../code/collapse_lineages.py --fasta {input.fasta} --metadata {input.metadata} --trim 0 --collapse_threshold 300 \
-            --out {output.output_path}
+        python3 ../code/collapse_lineages.py --reference_metadata {input.reference_metadata} \
+        --metadata_glob "output/sliding_windows/test_*.metadata.tsv.gz" --collapse_threshold 5000 --out {output.out}
         """
 
-# rule get_distances:
-#     message: "Compute average Pango distances in each reference set."
-#     input:
-#         ref="output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.csv.gz" 
-#     output:
-#         "output/sliding_windows/distances/seq_pango_sorted_{ref_min}_{ref_max}_pango_proportions.csv",
-#         "output/sliding_windows/distances/seq_pango_sorted_{ref_min}_{ref_max}_pango_distance_matrix_consensus.csv",
-#         "output/sliding_windows/distances/seq_pango_sorted_{ref_min}_{ref_max}_weighted_avg_distance_consensus.txt"
-#     shell:
-#         """
-#         python3 compute_distance_consensus.py --ref {input.ref}
-#         """
+rule generate_reference_set:
+    message: "Attaching collapsed lineages to metadata and creating the reference set of SARS-CoV-2 sequences with metadata"
+    input:
+        "output/collapse_dict.csv",
+        fasta="output/sliding_windows/ref_{ref_min}_{ref_max}.fasta.gz",
+        metadata="output/sliding_windows/ref_{ref_min}_{ref_max}.metadata.tsv.gz"
+    output:
+        out="output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.csv.gz",
+        summary="output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.collapsed_lineage_count.txt"
+    shell:
+        """
+        python3 ../code/generate_pango_sorted.py \
+            --fasta {input.fasta} \
+            --metadata {input.metadata} \
+            --trim 0 \
+            --collapse_dict {input[0]} \
+            --out {output.out}
+        """
 
 rule get_allele_freq:
     message: "Obtaining matrix of allele frequencies from the reference set. Allele frequencies are by position and the clustered Pango lineages."
     input:
-        data="output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.csv"
+        data="output/sliding_windows/seq_pango_sorted_{ref_min}_{ref_max}.csv.gz"
     output:
-        output_path="output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv"
+        output_path="output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv.gz"
     shell:
         """
         python3 ../code/get_allele_freq.py --csv {input.data} --out {output.output_path}
@@ -134,15 +159,16 @@ rule get_allele_freq:
 
 rule run_HMM:
     message: "Running the hidden Markov model to infer the parental lineages for the simulated recombinant sequences."
+    threads: 20
     input:
-        freq="output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv",
+        freq="output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv.gz",
         test="output/sliding_windows/test_{test_min}_{test_max}.fasta.gz"
     output:
         out="output/inferred/inferred_lineages_{ref_min}_{ref_max}_{test_min}_{test_max}.json",
         optim_out="output/inferred/optimization_results_{ref_min}_{ref_max}_{test_min}_{test_max}.csv"
     shell:
         """
-        python3 ../code/run_HMM.py --freq {input.freq} --test {input.test} --out {output.out} --optim_out {output.optim_out} --sample_size 1000
+        python3 ../code/run_HMM.py --freq {input.freq} --test {input.test} --out {output.out} --optim_out {output.optim_out} --sample_size 500 --cpu {threads}
         """
 
 # rule analyze_real_data_results:

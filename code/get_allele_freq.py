@@ -21,7 +21,7 @@ parser.add_argument("--out", type=str, required=True, help="output path for CSV 
 args = parser.parse_args()
 
 # Read in sequence file
-seq_pango_sorted = pd.read_csv(args.csv)
+seq_pango_sorted = pd.read_csv(args.csv, compression='gzip')
 
 # Function to obtain allele proportions within each cluster. Returns list of allele proportions corresponding to each position.
 def proportion_allele_counts(sequences):
@@ -50,6 +50,12 @@ def proportion_allele_counts(sequences):
     return allele_proportions
 
 print("starting allele frequency calculations")
+
+lineages = {}
+for lineage in seq_pango_sorted['collapsed'].unique():
+    sequences = seq_pango_sorted[seq_pango_sorted['collapsed'] == lineage]['Trimmed'].tolist()
+    print(f"Lineage: {lineage}, Sequence count: {len(sequences)}")
+    lineages[lineage] = sequences
 
 # Create a dictionary with the cluster number as the key and a list of sequences within the cluster as the value
 lineages = {lineage: seq_pango_sorted[seq_pango_sorted['collapsed'] == lineage]['Trimmed'].tolist() \
@@ -94,6 +100,6 @@ final_df_sorted = final_df_sorted.drop(columns=['Allele_Order'])
 print("finished calculating allele frequencies")
 
 # Save allele frequency matrix
-final_df_sorted.to_csv(args.out, index=False)
+final_df_sorted.to_csv(args.out, index=False, compression='gzip')
 
 print("saved allele frequency matrix")

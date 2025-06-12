@@ -71,6 +71,7 @@ parser.add_argument("--test", type=str, required=True, help="path to list of seq
 parser.add_argument("--out", type=str, required=True, help="output path (json)")
 parser.add_argument("--optim_out", type=str, required=True, help="output path for optimization results")
 parser.add_argument("--sample_size", type=int, default=10**8, help="maximum number of sequences in the test set")
+parser.add_argument("--cpu", type=int, default=5, help="Number of CPUs to use (default: 5)")
 # parser.add_argument("--plot", type=bool, default=False, help="specify whether to plot the inferred hidden states")
 # parser.add_argument("--plot_out", type=str, default="../output/inferred/inferred_lineages.png", help="path for saving plot")
 
@@ -135,7 +136,7 @@ find_parental_clusters_partial = partial(find_parental_clusters, freq=freq, inde
 if __name__ == '__main__':
     #print(f"Analyzing {len(test)} Sequences.")
     # Get cpu count
-    cpu_count = multiprocessing.cpu_count()-1
+    cpu_count = args.cpu
     # Create a pool of worker processes
     with multiprocessing.Pool(processes=cpu_count) as pool:
         # Map the combined list to the worker processes
