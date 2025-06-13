@@ -147,7 +147,7 @@ if __name__ == '__main__':
     # Create DataFrame
     res_df = pd.DataFrame(optimization_results, columns=["est_e", "est_s", "log_likelihood", "log_likelihood_null", "mmpp"])
     # Save to a CSV file
-    res_df.to_csv(args.optim_out, index=False)
+    res_df.to_csv(args.optim_out, index=False, compression="gzip")
 
     # Get inferred sequences of hidden states
     inferred_seq = [res[5] for res in results]
@@ -161,7 +161,7 @@ if __name__ == '__main__':
     res_dict = {"ID{}".format(i + 1): v for i, v in enumerate(res_list)}
 
     # Save to JSON file
-    with open(args.out, "w") as f:
+    with gzip.open(args.out, "wt", encoding="utf-8") as f:
         json.dump(res_dict, f, indent=4)
 
     # if args.plot:
