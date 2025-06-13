@@ -9,7 +9,10 @@ rule all:
                 test_max=[d["test"][1] for d in date_ranges]),
         expand("output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv.gz", zip,
                ref_min=[d["reference"][0] for d in date_ranges],
-               ref_max=[d["reference"][1] for d in date_ranges])
+               ref_max=[d["reference"][1] for d in date_ranges]),
+        expand("output/recombinant_expectation/expected_recombinants_{test_min}_{test_max}.csv.gz", zip,
+               test_min=[d["test"][0] for d in date_ranges],
+               test_max=[d["test"][1] for d in date_ranges])
         # expand("output/sliding_windows/test_{test_min}_{test_max}.fasta.gz", zip,
         #        test_min=[d["test"][0] for d in date_ranges],
         #        test_max=[d["test"][1] for d in date_ranges]),
@@ -127,6 +130,17 @@ rule collapse_lineages:
         --metadata_glob "output/sliding_windows/test_*.metadata.tsv.gz" --collapse_threshold 5000 --out {output.out}
         """
 
+rule expected_recombinant_freq:
+    message: "Calculating expected recombinant frequencies from test metadata."
+    input:
+        "output/sliding_windows/test_{test_min}_{test_max}.metadata.tsv.gz"
+    output:
+        "output/recombinant_expectation/expected_recombinants_{test_min}_{test_max}.csv.gz"
+    shell:
+        """
+        python3 ../code/expected_recombinants.py --metadata {input} --out {output}
+        """
+
 rule generate_reference_set:
     message: "Attaching collapsed lineages to metadata and creating the reference set of SARS-CoV-2 sequences with metadata"
     input:
@@ -159,7 +173,7 @@ rule get_allele_freq:
 
 rule run_HMM:
     message: "Running the hidden Markov model to infer the parental lineages for the simulated recombinant sequences."
-    threads: 20
+    threads: 4
     input:
         freq="output/sliding_windows/allele_freq_matrix_{ref_min}_{ref_max}.csv.gz",
         test="output/sliding_windows/test_{test_min}_{test_max}.fasta.gz"
@@ -168,7 +182,7 @@ rule run_HMM:
         optim_out="output/inferred/optimization_results_{ref_min}_{ref_max}_{test_min}_{test_max}.csv"
     shell:
         """
-        python3 ../code/run_HMM.py --freq {input.freq} --test {input.test} --out {output.out} --optim_out {output.optim_out} --sample_size 500 --cpu {threads}
+        python3 ../code/run_HMM.py --freq {input.freq} --test {input.test} --out {output.out} --optim_out {output.optim_out} --sample_size 20 --cpu {threads}
         """
 
 # rule analyze_real_data_results:
