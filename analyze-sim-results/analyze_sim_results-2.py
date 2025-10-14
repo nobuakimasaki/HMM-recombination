@@ -95,25 +95,19 @@ match_number_2 = 0
 
 # Calculate distances
 for i in range(n_cases):
-    true_bps = breakpoints[i]
-    inferred_bps = inferred_breakpoints_list[i]
+    true_bps = np.sort(np.asarray(breakpoints[i]))
+    inf_bps  = np.sort(np.asarray(inferred_breakpoints_list[i]))
 
-    if len(true_bps) == len(inferred_bps):
+    if len(true_bps) == len(inf_bps) == 1:
+        match_number_1 += 1
+        d = np.abs(inf_bps[0] - true_bps[0])
+        breakpoint_distances_single.append(float(d))
 
-        if len(true_bps) == 1:
-            # Just compute single absolute distance
-            match_number_1 += 1
-            breakpoint_distances_single.append(np.abs(inferred_bps[0] - true_bps[0]))
-
-        elif len(true_bps) == 2:
-            # Choose ordering that minimizes total absolute distance
-            match_number_2 += 1
-            dist1 = np.sum([np.abs(inferred_bps[0] - true_bps[0]), np.abs(inferred_bps[1] - true_bps[1])])
-            dist2 = np.sum([np.abs(inferred_bps[1] - true_bps[0]), np.abs(inferred_bps[0] - true_bps[1])])
-            if dist1 <= dist2:
-                breakpoint_distances_double.append(dist1)
-            else:
-                breakpoint_distances_double.append(dist2)
+    elif len(true_bps) == len(inf_bps) == 2:
+        match_number_2 += 1
+        # Pair by 5'→3' order and take the per-recombinant mean
+        d = np.abs(inf_bps - true_bps)          # elementwise: [|hat1-t1|, |hat2-t2|]
+        breakpoint_distances_double.append(float(d.mean()))
 
 boot_dist_single = []
 boot_dist_double = []
