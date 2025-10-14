@@ -1,0 +1,339 @@
+---
+
+title: "Recombinant time‑series (counts)"
+output: html\_document
+date: "2025‑06‑25"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# ────────────────────────────────── libraries ─────────────────────────────────
+library(tidyverse)      # ggplot2, dplyr, purrr, forcats …
+library(ggstream)       # area / stream plots
+library(RColorBrewer)   # palettes
+library(scales)         # comma(), percent_format(), …
+library(patchwork)      # plot composition
+library(forcats)        # factor helpers
+library(grid)           # textGrob for shared y‑axis label
+```
+
+## 1  Load & prepare data
+
+```{r data-import}
+# ── Inferred recombinants ─────────────────────────────────────────────────────
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+# Samples per sliding window (denominator)
+res_by_window <- res %>%
+  count(test_start, test_end, name = "n_samples") %>%
+  mutate(across(c(test_start, test_end), as.Date))
+
+# Keep only calls with exactly two parental lineages
+res_pairs <- res %>%
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(
+    Lineage_1  = pmin(Lineage_A, Lineage_B),
+    Lineage_2  = pmax(Lineage_A, Lineage_B),
+    test_start = as.Date(test_start),
+    test_end   = as.Date(test_end),
+    date       = test_start + (test_end - test_start) / 2,
+    lineage_pair = paste(Lineage_1, Lineage_2, sep = " + ")
+  ) %>%
+  group_by(test_start, test_end, date, lineage_pair) %>%
+  summarise(n_inferred = n(), .groups = "drop") %>%
+  left_join(res_by_window, by = c("test_start", "test_end")) %>%
+  mutate(lineage_freq = n_inferred / n_samples)   # ← still useful for ranking
+
+# ── External prevalence & expectations ────────────────────────────────────────
+ons_data <- read.delim("../data/ons_survey_data.tsv", sep = "\t", header = FALSE) %>%
+  transmute(date = as.Date(V1, "%d %B %Y"),
+            prevalence = V2 / 100)
+
+exp_raw <- read.csv("summary_files/combined_expected_recombinants.csv") %>%
+  mutate(across(c(test_start, test_end), as.Date))
+
+# Window‑level expected counts (all lineages collapsed)
+exp_freq <- exp_raw %>%
+  group_by(test_start, test_end) %>%
+  summarise(Expected = sum(Expected_Recombinant_Frequency), .groups = "drop") %>%
+  mutate(
+    midpoint        = test_start + (test_end - test_start) / 2,
+    mean_prevalence = map2_dbl(test_start, test_end, ~ mean(ons_data$prevalence[ons_data$date >= .x & ons_data$date <= .y], na.rm = TRUE)),
+    exp_recomb_freq = Expected * mean_prevalence
+  ) %>%
+  left_join(res_by_window, by = c("test_start", "test_end")) %>%
+  mutate(exp_count = n_samples * exp_recomb_freq)
+
+# Expected counts split by lineage pair
+exp_freq_by_lineage <- exp_raw %>%
+  mutate(across(c(test_start, test_end), as.Date)) %>%
+  mutate(
+    midpoint        = test_start + (test_end - test_start) / 2,
+    mean_prevalence = map2_dbl(test_start, test_end, ~ mean(ons_data$prevalence[ons_data$date >= .x & ons_data$date <= .y], na.rm = TRUE)),
+    exp_recomb_freq = Expected_Recombinant_Frequency * mean_prevalence,
+    Lineage_1  = pmin(Lineage_A, Lineage_B),
+    Lineage_2  = pmax(Lineage_A, Lineage_B),
+    lineage_pair = paste(Lineage_1, Lineage_2, sep = " + ")
+  ) %>%
+  left_join(res_by_window, by = c("test_start", "test_end")) %>%
+  mutate(exp_count = replace_na(n_samples * exp_recomb_freq, 0))
+```
+
+## 2  Unified lineage‑pair palette
+
+```{r palette}
+# Helper to pick n colours from RColorBrewer "Paired"
+palette_fun <- function(n) colorRampPalette(brewer.pal(12, "Paired"))(n)
+
+# Top 8 among observed and expected ------------------------------------------
+obs_top_n <- 8
+exp_top_n <- 8
+
+obs_top_pairs <- res_pairs %>%
+  filter(!str_detect(lineage_pair, "other") & test_start < as.Date("2023-03-20")) %>%
+  group_by(lineage_pair) %>%
+  summarise(total = sum(n_inferred, na.rm = TRUE), first_date = min(date), .groups = "drop") %>%
+  arrange(desc(total)) %>%
+  slice_head(n = obs_top_n) %>%
+  pull(lineage_pair)
+
+exp_top_pairs <- exp_freq_by_lineage %>%
+  filter(Lineage_1 != "other" & Lineage_2 != "other") %>%
+  group_by(lineage_pair) %>%
+  summarise(total = sum(exp_count, na.rm = TRUE), first_date = min(midpoint), .groups = "drop") %>%
+  arrange(desc(total)) %>%
+  slice_head(n = exp_top_n) %>%
+  pull(lineage_pair)
+
+# Union → unified palette -----------------------------------------------------
+unified_pairs <- union(obs_top_pairs, exp_top_pairs)
+
+res_pairs <- res_pairs %>%
+  mutate(fill_cat = if_else(lineage_pair %in% unified_pairs, lineage_pair, "Other"))
+
+exp_freq_by_lineage <- exp_freq_by_lineage %>%
+  mutate(fill_cat = if_else(lineage_pair %in% unified_pairs, lineage_pair, "Other"))
+
+fill_levels <- c("Other", unified_pairs)
+fill_cols   <- setNames(c("grey85", palette_fun(length(unified_pairs))), fill_levels)
+
+# Work out when each of those pairs first shows up *in the expected series*
+first_seen_tbl <- exp_freq_by_lineage %>%          # the expected-counts data
+  filter(lineage_pair %in% unified_pairs) %>%       # keep only those pairs
+  group_by(lineage_pair) %>%                       # one row per pair
+  summarise(first_date = min(midpoint), .groups="drop") %>%
+  arrange(first_date)                              # chronological order
+
+chronological_pairs <- first_seen_tbl$lineage_pair # a character vector
+```
+
+## 3  Plot‑ready summaries
+
+```{r summaries}
+# Area plot for observed counts (date × fill_cat)
+area_df <- res_pairs %>%
+  group_by(date, fill_cat) %>%
+  summarise(n_inferred = sum(n_inferred), .groups = "drop") %>%
+  mutate(fill_cat = fct_relevel(fill_cat, "Other"))
+
+# Exact binomial CIs ⇒ *count* scale
+ci_exact <- function(k, n) binom.test(k, n)$conf.int
+
+summary_df <- res_pairs %>%
+  group_by(date) %>%
+  summarise(
+    n_samples  = first(n_samples),
+    n_inferred = sum(n_inferred),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    ci_lo = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[1] * .y),
+    ci_hi = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[2] * .y),
+    ci_prop_lo = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[1]),
+    ci_prop_hi = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[2]),
+  )
+
+# Collapse expected counts by lineage + midpoint for stacked area
+exp_area_df <- exp_freq_by_lineage %>%
+  group_by(midpoint, fill_cat) %>%
+  summarise(exp_count = sum(exp_count), .groups = "drop") %>%
+  mutate(fill_cat = fct_relevel(fill_cat, "Other"))
+
+area_df$fill_cat <- factor(area_df$fill_cat,
+                                     levels = c("Other", chronological_pairs))
+exp_area_df$fill_cat <- factor(exp_area_df$fill_cat,
+                                       levels = c("Other", chronological_pairs))
+
+fill_cols <- setNames(
+  c("grey85", palette_fun(length(chronological_pairs))),
+  c("Other", chronological_pairs)
+)
+```
+
+## 4  Plots
+
+```{r plots}
+# 4.1  TOTAL observed vs expected --------------------------------------------
+p_total <- ggplot(summary_df, aes(date, n_inferred)) +
+  geom_ribbon(aes(ymin = ci_lo, ymax = ci_hi), fill = "lightblue", alpha = 0.3) +
+  geom_line(linewidth = 0.4) +
+  geom_line(data = exp_freq, aes(midpoint, exp_count), colour = "red", linewidth = 0.4) +
+  scale_y_continuous(labels = comma) +
+  labs(x = NULL, y = NULL) +
+  theme_bw()
+
+# 4.2  Stacked‑area of *observed* pairs --------------------------------------
+p_area_obs <- ggplot(area_df) +
+  geom_area(aes(date, n_inferred, fill = fill_cat)) +
+  scale_fill_manual(values = fill_cols, breaks = chronological_pairs, name = NULL) +
+  geom_line(data = exp_freq, aes(midpoint, exp_count), colour = "red", linewidth = 0.4) +
+  scale_y_continuous(labels = comma) +
+  labs(x = NULL, y = "Count") +
+  theme_bw() +
+  theme(legend.position = "none")
+
+# 4.3  Stacked‑area of *expected* pairs --------------------------------------
+p_area_exp <- ggplot(exp_area_df) +
+  geom_area(aes(midpoint, exp_count, fill = fill_cat)) +
+  scale_fill_manual(values = fill_cols, breaks = chronological_pairs, name = NULL) +
+  geom_line(data = summary_df, aes(date, n_inferred), colour = "black", linewidth = 0.4) +
+  scale_y_continuous(labels = comma) +
+  labs(x = NULL, y = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+
+# 4.4  Assemble full layout with extra line/ribbon key -----------------------
+
+# ── compact legend grob for lines & ribbon ─────────────────────────────────
+legend_df <- tibble(
+  x    = -2,
+  xend = -1,
+  y    = c(0.6, 0.3, 0.0),
+  yend = c(0.6, 0.3, 0.0),
+  col  = c("red", "black", "lightblue"),
+  lab  = c("Rule-of-thumb", "Detected", "95% CI")
+)
+
+legend_key <- ggplot() +
+  geom_segment(data = legend_df,
+               aes(x, y, xend = xend, yend = yend, colour = col),
+               linewidth = c(0.5, 0.5, 2), lineend = "round", show.legend = FALSE) +
+  geom_text(data = legend_df,
+            aes(x = xend + 0.05, y = y, label = lab),
+            hjust = 0, size = 3) +
+  scale_colour_identity() +
+  coord_cartesian(clip = "off") +
+  theme_void() +
+  theme(plot.margin = margin())
+
+# ── inset legend inside first panel -----------------------------------------
+
+p_total_legend <- p_total +
+  patchwork::inset_element(
+    legend_key,
+    left   = 0.72,  # narrower horizontal slice in top‑right corner
+    right  = 0.92,
+    top    = 0.92,  # near the very top of the panel
+    bottom = 0.72   # makes the legend about 20 % of the plot height
+  )
+
+# ── assemble rows without column spacers ------------------------------------
+combined <- (p_total_legend / p_area_obs / p_area_exp) +
+  plot_layout(heights = c(3, 3, 3))
+
+final_plot <- combined +
+  plot_annotation(theme = theme(plot.margin = margin(t = 5.5, r = 45, b = 5.5, l = 5.5)))
+
+final_plot
+```
+
+```{r save-plot, echo = FALSE}
+# Save PNG with sufficient margins so legends are not cropped
+# Adjust size as needed for your output medium
+
+ggsave(
+  filename = "figs/recombinant_time_series_counts.png",
+  plot     = final_plot,
+  width    = 10,          # inches
+  height   = 12,          # inches
+  dpi      = 300,
+  units    = "in"
+)
+```
+
+```{r}
+library(ggplot2)
+library(scales)   # comma()
+
+p_total <- ggplot() +
+
+  ## 95 % CI ribbon (plotted but *not* added to the legend)
+  geom_ribbon(
+    data = summary_df,
+    aes(date, ymin = ci_lo, ymax = ci_hi),
+    fill  = "lightblue", alpha = 0.3, show.legend = FALSE
+  ) +
+
+  ## Detected counts (black line)
+  geom_line(
+    data = summary_df,
+    aes(date, n_inferred, colour = "Detected"),
+    linewidth = 0.4
+  ) +
+
+  ## Rule-of-thumb expectation (red line)
+  geom_line(
+    data = exp_freq,
+    aes(midpoint, exp_count, colour = "Rule-of-thumb"),
+    linewidth = 0.4
+  ) +
+
+  ## invisible line ⇢ creates colour-scale entry for “95 % CI”
+  geom_line(
+    data   = summary_df,
+    aes(date, n_inferred, colour = "95% CI"),
+    linewidth = 0.4, alpha = 0
+  ) +
+
+  ## one colour scale → one legend
+  scale_colour_manual(
+    breaks = c("Detected", "95% CI", "Rule-of-thumb"),
+    values = c(
+      "Detected"      = "black",
+      "95% CI"        = "lightblue",
+      "Rule-of-thumb" = "red"
+    ),
+    name  = NULL,
+    guide = guide_legend(
+      override.aes = list(
+        linetype = "solid",
+        size     = 0.4,
+        alpha    = 1              # legend keys fully opaque
+      )
+    )
+  ) +
+  labs(x = "Date", y = "Count") +
+
+  ## no fill scale needed (ribbon legend suppressed above)
+  scale_y_continuous(labels = comma) +
+  theme_bw() +
+  theme(
+    legend.position      = c(0.98, 0.98),  # inside plot, top-right
+    legend.justification = c(1, 1),
+    legend.background    = element_rect(fill = "white", colour = NA)
+  )
+
+p_total
+
+ggsave(
+  filename = "figs/recombinant_time_series.png",
+  plot     = p_total,
+  width    = 10,          # inches
+  height   = 4,          # inches
+  dpi      = 300,
+  units    = "in"
+)
+```
+

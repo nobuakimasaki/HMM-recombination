@@ -1,0 +1,301 @@
+---
+title: "breakpoints"
+output: html_document
+date: "2025-06-27"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggrepel)
+library(viridis)
+library(readr)
+library(patchwork)
+
+# ───────────────── 0) load gene annotations from GFF ─────────────────────────
+gene_ann <- read_tsv(
+  "../data/gene_annotation.gff",
+  comment = "#",
+  col_names = FALSE,
+  show_col_types = FALSE
+)
+colnames(gene_ann) <- c(
+  "seqid","source","feature","start",
+  "end","score","strand","phase","attributes"
+)
+# Define genes to label in overall track
+focal_genes <- c("ORF1ab", "S", "N")
+# Extract all gene features
+gene_bounds <- gene_ann %>%
+  filter(feature == "gene") %>%
+  mutate(
+    gene = str_extract(attributes, "(?<=Name=)[^;]+"),
+    gene = if_else(is.na(gene),
+                   str_extract(attributes, "(?<=ID=)[^;]+"),
+                   gene),
+    mid = (start + end) / 2
+  ) %>%
+  select(start, end, mid, gene)
+
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+# ───────────────── 1) tidy breakpoint data ──────────────────────────────────
+break_df <- res %>%
+  filter(!is.na(breakpoints) & breakpoints != "") %>%
+  mutate(breakpoint_vec = str_split(breakpoints, ";")) %>%
+  unnest_longer(breakpoint_vec, values_to = "break_pos") %>%
+  mutate(break_pos = as.numeric(break_pos))
+
+# Compute histogram bins and overall limits
+bin_width <- 200
+breaks_seq <- seq(0, 30000, by = bin_width)
+hist_df <- break_df %>%
+  mutate(bin = cut(break_pos, breaks = breaks_seq,
+                   include.lowest = TRUE, right = FALSE)) %>%
+  count(bin)
+max_count <- max(hist_df$n)
+
+# Prepare downstream-of-ORF3a parameters
+orfl3a_start  <- gene_bounds %>% filter(gene == "ORF3a") %>% pull(start)
+orf10_end  <- gene_bounds %>% filter(gene == "ORF10") %>% pull(end)
+break_df_post <- break_df %>% filter(break_pos >= orfl3a_start & break_pos <= orf10_end)
+small_bin     <- bin_width / 2
+breaks_post   <- seq(orfl3a_start, max(break_df_post$break_pos), by = small_bin)
+
+if (!dir.exists("figs")) dir.create("figs")
+```
+
+```{r gene-track, fig.cap="Gene annotation track (above histogram)."}
+# Full gene track for all genes, label only focal ones
+gene_track <- ggplot(gene_bounds) +
+  geom_rect(
+    aes(xmin = start, xmax = end, ymin = 0, ymax = 0.15, fill = gene),
+    colour = "grey50", size = 0.3, alpha = 0.6
+  ) +
+  geom_text(
+    data = filter(gene_bounds, gene %in% focal_genes),
+    aes(x = mid, y = 0.075, label = gene),
+    angle = 0, vjust = 0.5, size = 3, colour = "grey20"
+  ) +
+  scale_fill_viridis_d(option = "plasma", direction = 1,
+                       name = "Gene",
+                       guide = guide_legend(nrow = 1, byrow = TRUE)) +
+  scale_x_continuous(breaks = breaks_seq,
+                     limits = c(min(breaks_seq), max(breaks_seq)),
+                     expand = expansion(add = 0)) +
+  scale_y_continuous(limits = c(0, 0.15), expand = expansion(add = 0)) +
+  theme_void() +
+  theme(
+    legend.position = "none",
+    plot.margin     = unit(c(0,1,0,1), "lines")
+  )
+```
+
+```{r overall-histogram, fig.cap="Distribution of inferred breakpoints with gene track."}
+# Overall histogram with matching x-limits
+overl <- min(breaks_seq)
+outr <- max(breaks_seq)
+p_all <- ggplot(break_df, aes(break_pos)) +
+  geom_histogram(binwidth = 500, boundary = overl, closed = "left",
+                 colour = "grey40",
+                 fill   = viridis(1, begin = 0.4, end = 0.8),
+                 alpha  = 0.8) +
+  labs(x = "Genomic position", y = "Breakpoint count") +
+  scale_x_continuous(limits = c(overl, outr),
+                     labels = scales::comma,
+                     expand = expansion(add = 0)) +
+  scale_y_continuous(labels = scales::comma,
+                     expand = expansion(add = 0)) +
+  theme_bw(base_size = 17) +
+  theme(panel.grid.minor = element_blank())
+
+# Combine and save overall
+combined_plot <- gene_track / p_all +
+  plot_layout(heights = c(1,6))
+ggsave(
+  "figs/breakpoints_overall_track.png",
+  combined_plot,
+  width = 200, height = 100,
+  units = "mm", dpi = 300, bg = "white"
+)
+```
+
+```{r postORF3a-track, fig.cap="Gene track downstream of ORF3a with aligned axis."}
+# Gene track for genes downstream of ORF3a, aligned to histogram limits
+gb_post <- gene_bounds %>% filter(start >= orfl3a_start, end <= orf10_end)
+
+post_track <- ggplot(gb_post) +
+  geom_rect(
+    aes(xmin = start, xmax = end, ymin = 0, ymax = 0.15, fill = gene),
+    colour = "grey50", size = 0.3, alpha = 0.6
+  ) +
+  geom_text(
+    data = filter(gb_post, !gene %in% c("ORF6","ORF7b","ORF10")),
+    aes(x = mid, y = 0.075, label = gene),
+    angle = 0, vjust = 0.5, size = 3, colour = "grey20"
+  ) +
+  scale_fill_viridis_d(option = "plasma", direction = 1, drop = FALSE) +
+  scale_x_continuous(
+    breaks = breaks_post,
+    limits = c(orfl3a_start, orf10_end),
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  scale_y_continuous(limits = c(0,0.15), expand = expansion(add = 0)) +
+  theme_void() +
+  theme(
+    legend.position = "none",
+    plot.margin     = unit(c(0,1,0,1), "lines")
+  )
+```
+
+```{r postORF3a-histogram, fig.cap="Breakpoints downstream of ORF3a with aligned axis."}
+# Histogram downstream of ORF3a filtered to ORF10 end
+p_post <- ggplot(break_df_post, aes(break_pos)) +
+  geom_histogram(
+    binwidth = 65,
+    boundary = orfl3a_start,
+    closed   = "left",
+    colour   = "grey40",
+    fill     = viridis(1, begin = 0.4, end = 0.8),
+    alpha    = 0.8
+  ) +
+  labs(x = "Genomic position",
+       y = "Breakpoint count") +
+  scale_x_continuous(
+    limits = c(orfl3a_start, orf10_end),
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  scale_y_continuous(labels = scales::comma,
+                     expand = expansion(add = 0)) +
+  theme_bw(base_size = 18) +
+  theme(
+    panel.grid.minor = element_blank(),
+    plot.title       = element_text(size = 14)
+  )
+
+pb <- ggplot_build(p_post)
+
+bin_edges <- sort(unique(c(pb$data[[1]]$xmin, pb$data[[1]]$xmax)))
+
+# 1) pull out all gene starts & ends
+gene_positions <- c(gene_bounds$start, gene_bounds$end)
+
+# 2) merge & sort uniquely
+combined_edges <- sort(unique(c(bin_edges, gene_positions)))
+
+# Inspect
+print(combined_edges)
+```
+
+```{r}
+# # Histogram downstream of ORF3a filtered to ORF10 end
+# p_post <- ggplot(break_df_post, aes(break_pos)) +
+#   geom_histogram(
+#     breaks = combined_edges,
+#     boundary = orfl3a_start,
+#     closed   = "left",
+#     colour   = "grey40",
+#     fill     = viridis(1, begin = 0.4, end = 0.8),
+#     alpha    = 0.8
+#   ) +
+#   labs(x = "Genomic position (nt)",
+#        y = "Breakpoint count") +
+#   scale_x_continuous(
+#     limits = c(orfl3a_start, orf10_end),
+#     labels = scales::comma,
+#     expand = expansion(add = 0)
+#   ) +
+#   scale_y_continuous(labels = scales::comma,
+#                      expand = expansion(add = 0)) +
+#   theme_bw(base_size = 12) +
+#   theme(
+#     panel.grid.minor = element_blank(),
+#     plot.title       = element_text(size = 14)
+#   )
+
+# Combine and save post-ORF3a
+post_plot <- post_track / p_post +
+  plot_layout(heights = c(1,6))
+
+ggsave(
+  "figs/breakpoints_postORF3a_track.png",
+  post_plot,
+  width = 200, height = 100,
+  units = "mm", dpi = 300, bg = "white"
+)
+```
+
+```{r echo=FALSE}
+combined_plot
+post_plot
+```
+
+
+
+```{r}
+# # 4b) stacked‐area plot via position="fill"
+# # 1) calculate and group breakpoints
+# res_bp <- res %>%
+#   filter(!is.na(breakpoints) & breakpoints != "") %>%
+#   mutate(
+#     mid_date   = test_start + (test_end - test_start) / 2,
+#     n_breaks   = str_count(breakpoints, ";") + 1,
+#     # collapse 4 or more into "4+"
+#     n_breaks_g = if_else(n_breaks >= 4, "4+", as.character(n_breaks))
+#   ) %>%
+#   # ensure the factor ordering
+#   mutate(n_breaks_g = factor(n_breaks_g, levels = c("1","2","3","4+")))
+# 
+# # 2) tally per date & grouped break count
+# stream_df2 <- res_bp %>%
+#   count(mid_date, n_breaks_g)
+# 
+# # 3) draw the 100%‐stacked area
+# p_area_fill <- ggplot(stream_df2, 
+#                       aes(x = mid_date, 
+#                           y = n, 
+#                           group = n_breaks_g, 
+#                           fill  = n_breaks_g)) +
+#   geom_area(
+#     position = "fill",
+#     alpha    = 0.8,
+#     colour   = "grey30",
+#     size     = 0.1
+#   ) +
+#   scale_fill_viridis_d(
+#     option = "mako",
+#     name   = "Breakpoints per sample",
+#     drop   = FALSE
+#   ) +
+#   scale_y_continuous(labels = scales::percent_format()) +
+#   scale_x_date(
+#     date_breaks = "1 year",
+#     date_labels = "%Y",
+#     expand      = expansion(add = 0)
+#   ) +
+#   labs(
+#     x = "Year",
+#     y = "Proportion",
+#     title = "Breakpoint‐count profiles over time (4+ grouped)"
+#   ) +
+#   theme_bw(base_size = 12) +
+#   theme(
+#     panel.grid.minor = element_blank(),
+#     legend.position   = "bottom",
+#     plot.title        = element_text(face = "bold", size = 14)
+#   )
+
+# # 4) save it
+# ggsave("figs/breakpoints_area_4plus.png", p_area_fill,
+#        width = 170, height = 100, units = "mm", dpi = 300, bg = "white")
+```
+
+```{r}
+# p_area_fill
+```
+
+```{r}
+# max(stream_df2$n_breaks)
+```

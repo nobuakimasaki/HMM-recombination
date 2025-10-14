@@ -1,0 +1,334 @@
+---
+
+title: "Overall Lineage‑Pair Stream Plot"
+output: html\_document
+date: "2025-06-25"
+---
+
+```{r setup, include=FALSE}
+# ────────────────────────────────── libraries ─────────────────────────────────
+library(ggstream)
+library(tidyverse)
+library(lubridate)
+library(RColorBrewer)
+library(purrr)
+library(glue)
+library(patchwork)
+library(ggrepel)
+
+# ─────────────────────────────── input / output ──────────────────────────────
+if (!dir.exists("figs")) dir.create("figs")
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+# ─────────────────────────────── preprocessing ───────────────────────────────
+res_two_lineages <- res %>%
+  mutate(recomb         = if_else(n_breakpoints > 0, 1, 0),
+         exp_transition = 29902 * (1 - est_s)) %>%
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B)) %>%
+  select(-Lineage_A, -Lineage_B) %>%
+  mutate(test_start = as.Date(test_start),
+         test_end   = as.Date(test_end)) %>%
+  group_by(test_start, test_end, Lineage_1, Lineage_2) %>%
+  summarise(n_inferred = n(), .groups = "drop") %>%
+  mutate(date         = test_start + (test_end - test_start) / 2,
+         lineage_pair = map2_chr(Lineage_1, Lineage_2, ~ paste(sort(c(.x, .y)), collapse = " + ")))
+```
+
+```{r}
+
+df <- res_two_lineages
+  # ── choose top_n by abundance first ────────────────────────────────────────
+top_by_size <- df %>%
+  filter(Lineage_1 != "other", Lineage_2 != "other") %>%
+  count(lineage_pair, wt = n_inferred, name = "tot") %>%
+  slice_max(tot, n = 15, with_ties = FALSE) %>%
+  pull(lineage_pair)
+
+  # ── reorder those by first chronological appearance ───────────────────────
+  topN <- df %>%
+    filter(lineage_pair %in% top_by_size) %>%
+    group_by(lineage_pair) %>%
+    summarise(first_date = min(date), .groups = "drop") %>%
+    arrange(first_date, lineage_pair) %>%   # alphabetical tiebreaker
+    pull(lineage_pair)
+
+  fill_lvls <- c("Other", topN)
+
+  df <- df %>% mutate(fill_cat = if_else(lineage_pair %in% topN, lineage_pair, "Other"))
+
+  stream2 <- df %>%
+    complete(date = seq(min(date), max(date), by = "week"),
+             nesting(lineage_pair, fill_cat),
+             fill = list(n_inferred = 0)) %>%
+    group_by(date, lineage_pair, fill_cat) %>%
+    summarise(n_inferred = sum(n_inferred), .groups = "drop")
+  stream$fill_cat <- factor(stream$fill_cat, levels = fill_lvls)
+  
+  stream3 <- stream2 %>% group_by(date, fill_cat) %>% summarize(n_inferred = sum(n_inferred))
+```
+
+
+```{r helpers, include=FALSE}
+# palette helper --------------------------------------------------------------
+palette_auto <- function(n) colorRampPalette(brewer.pal(12, "Paired"))(n)
+
+# master plotting function ----------------------------------------------------
+make_stream_plots <- function(df,
+                             year_label   = NULL,
+                             y_count_max  = NULL,
+                             drop_yaxis   = FALSE,
+                             show_x_title = FALSE,
+                             fixed_cols   = NULL,
+                             legend_title = "Lineage combination",
+                             top_n        = 15) {
+
+  # ── choose top_n by abundance first ────────────────────────────────────────
+top_by_size <- df %>%
+  filter(Lineage_1 != "other", Lineage_2 != "other") %>%
+  count(lineage_pair, wt = n_inferred, name = "tot") %>%
+  slice_max(tot, n = top_n, with_ties = FALSE) %>%
+  pull(lineage_pair)
+
+  # ── reorder those by first chronological appearance ───────────────────────
+  topN <- df %>%
+    filter(lineage_pair %in% top_by_size) %>%
+    group_by(lineage_pair) %>%
+    summarise(first_date = min(date), .groups = "drop") %>%
+    arrange(first_date, lineage_pair) %>%   # alphabetical tiebreaker
+    pull(lineage_pair)
+
+  fill_lvls <- c("Other", topN)
+
+  df <- df %>% mutate(fill_cat = if_else(lineage_pair %in% topN, lineage_pair, "Other"))
+
+  stream <- df %>%
+    complete(date = seq(min(date), max(date), by = "week"),
+             nesting(lineage_pair, fill_cat),
+             fill = list(n_inferred = 0)) %>%
+    group_by(date, lineage_pair, fill_cat) %>%
+    summarise(n_inferred = sum(n_inferred), .groups = "drop")
+  stream$fill_cat <- factor(stream$fill_cat, levels = fill_lvls)
+
+  # colours -------------------------------------------------------------------
+  if (is.null(fixed_cols)) {
+    fill_cols <- setNames(palette_auto(length(fill_lvls)), fill_lvls)
+  } else {
+    fill_cols <- fixed_cols
+    missing <- setdiff(fill_lvls, names(fill_cols))
+    if (length(missing) > 0)
+      fill_cols <- c(fill_cols, setNames(palette_auto(length(missing)), missing))
+  }
+  fill_cols["Other"] <- "grey85"
+  border_cols <- setNames(rep("grey40", length(unique(stream$lineage_pair))),
+                          unique(stream$lineage_pair))
+  border_cols[topN] <- NA
+
+  # shared theme --------------------------------------------------------------
+  base_theme <- theme_bw() + theme(axis.title.x = element_blank())
+  if (drop_yaxis)
+    base_theme <- base_theme + theme(axis.title.y = element_blank(),
+                                     axis.text.y  = element_blank(),
+                                     axis.ticks.y = element_blank())
+
+  date_scale <- scale_x_date(date_labels = "%b %Y")
+
+  # proportional --------------------------------------------------------------
+  p_prop <- ggplot(stream, aes(date, n_inferred, fill = fill_cat, colour = lineage_pair)) +
+    geom_stream(type = "proportional", size = 0.25, bw = 0.3) +
+    scale_fill_manual(values = fill_cols, breaks = topN) +
+    scale_colour_manual(values = border_cols, guide = "none") +
+    date_scale +
+    labs(y = "Proportion") +
+    base_theme +
+    theme(legend.position = "none")
+  if (!is.null(year_label))
+    p_prop <- p_prop + ggtitle(year_label) +
+      theme(plot.title = element_text(hjust = 0, size = 12))
+
+  # count ---------------------------------------------------------------------
+  p_cnt <- ggplot(stream, aes(date, n_inferred, fill = fill_cat, colour = lineage_pair)) +
+    geom_stream(type = "ridge", size = 0.25, bw = 0.3) +
+    scale_fill_manual(values = fill_cols,
+                      name   = legend_title,
+                      guide  = guide_legend(nrow = 3, byrow = FALSE),
+                      breaks = topN) +
+    scale_colour_manual(values = border_cols, guide = "none") +
+    date_scale +
+    labs(y = "Count") +
+    base_theme +
+    theme(legend.position = "bottom",
+          legend.text     = element_text(size = 10),
+          legend.title    = element_text(size = 10))
+  if (show_x_title)
+    p_cnt <- p_cnt + labs(x = "Date")
+  if (!is.null(y_count_max))
+    p_cnt <- p_cnt + scale_y_continuous(limits = c(0, y_count_max))
+
+  (p_prop) / (p_cnt) 
+}
+```
+
+```{r overall_stream}
+# ─────────────── one stream plot across the entire study period ──────────────
+overall_plot <- make_stream_plots(
+  res_two_lineages,
+  year_label   = NULL,   # no title
+  show_x_title = TRUE    # keep the x‑axis label
+)
+
+ggsave(
+  filename = "figs/lineage_pairs_overall.png",
+  plot     = overall_plot,
+  width    = 12,
+  height   = 8,
+  dpi      = 300
+)
+
+overall_plot  # render in the document
+```
+
+```{r}
+# ───────────────────────────────────────────────────────────────────────────────
+# 1) Load expected recombinant data
+# ───────────────────────────────────────────────────────────────────────────────
+exp_freq <- read_csv(
+  "summary_files/combined_expected_recombinants.csv",
+  show_col_types = FALSE
+)
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 2) Extract marginal frequencies and compute window midpoints
+# ───────────────────────────────────────────────────────────────────────────────
+df_marginal_dates <- 
+  bind_rows( 
+    select(exp_freq, test_start, test_end, lineage = Lineage_A, p = pA),
+    select(exp_freq, test_start, test_end, lineage = Lineage_B, p = pB)
+  ) %>%
+  distinct(test_start, test_end, lineage, .keep_all = TRUE) %>% 
+  mutate(
+    test_start     = as.Date(test_start),
+    test_end       = as.Date(test_end),
+    date           = test_start + (test_end - test_start) / 2,
+    marginal_freq  = p
+  ) %>%
+  select(test_start, test_end, date, lineage, marginal_freq)
+
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 3) Identify high-frequency runs (>0.25) per lineage
+# ───────────────────────────────────────────────────────────────────────────────
+segments <- df_marginal_dates %>%
+  filter(marginal_freq > 0.4) %>%
+  arrange(lineage, date) %>%
+  group_by(lineage) %>%
+  # start new run when gap > 7 days
+  mutate(
+    new_run = c(TRUE, diff(date) > days(7)),
+    run     = cumsum(new_run)
+  ) %>%
+  group_by(lineage, run) %>%
+  summarize(
+    start    = min(test_start),
+    end      = max(test_end),
+    midpoint = start + (end - start) / 2,
+    .groups  = "drop"
+  )
+
+
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 4) Assign each lineage its own “track” (y-position) to avoid overlap
+# ───────────────────────────────────────────────────────────────────────────────
+highlight_lineages <- unique(segments$lineage)
+
+# 1) parameters
+buffer_days <- 14
+buffer      <- days(buffer_days)
+
+# 2) sort & init
+segments <- segments %>%
+  arrange(start) %>%
+  mutate(row = NA_integer_)
+track_ends <- as.Date(character())
+
+# 3) greedy assignment with buffer
+for (i in seq_len(nrow(segments))) {
+  s <- segments$start[i]
+  e <- segments$end[i]
+  
+  # find the first row whose last end+buffer is <= this start
+  free_row <- which(track_ends + buffer <= s)[1L]
+  
+  if (!is.na(free_row)) {
+    segments$row[i]         <- free_row
+    track_ends[free_row]    <- e
+  } else {
+    track_ends             <- c(track_ends, e)
+    segments$row[i]        <- length(track_ends)
+  }
+}
+
+# 4) compute y positions
+segments <- segments %>%
+  mutate(
+    y       = -0.05  - (row - 1) * 0.015,
+    y_label = y      - 0.003
+  )
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 5) Build & annotate the stream plot
+# ───────────────────────────────────────────────────────────────────────────────
+# base_plot <- make_stream_plots(res_two_lineages, show_x_title = TRUE)
+
+annotated_clean <- ggplot() +
+  coord_cartesian(clip = "off") +
+
+  # draw the highlight bars as before
+  geom_segment(
+    data = segments,
+    aes(x = start, xend = end, y = y, yend = y),
+    inherit.aes = FALSE,
+    colour = "steelblue",
+    size   = 1.5
+  ) +
+
+  # replace geom_text() with geom_text_repel()
+  geom_text_repel(
+    data            = segments,
+    aes(x = midpoint, y = y_label, label = lineage),
+    inherit.aes     = FALSE,
+    direction       = "y",         # only repel vertically
+    nudge_x         = 0,           # don’t move left/right
+    nudge_y         = -0.005,      # small downward nudge
+    segment.size    = 0,           # no connector segments
+    box.padding     = 0.1,
+    point.padding   = 0,
+    max.overlaps    = Inf,         # allow it to try for all labels
+    force           = 1            # strength of repulsion
+  ) +
+
+  theme_void() +
+  theme(
+    plot.margin = margin(t = 0, r = 0, b = 5, l = 0)
+  )
+
+# render
+combined <- annotated_clean / overall_plot + plot_layout(heights = c(0.4, 2))
+
+combined
+
+ggsave(
+  filename = "figs/lineage_pairs_overall.png",
+  plot     = combined,
+  width    = 12,
+  height   = 8,
+  dpi      = 300
+)
+```
+
+
+

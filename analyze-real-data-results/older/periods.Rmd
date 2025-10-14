@@ -1,0 +1,143 @@
+---
+title: "analysis"
+output: html_document
+date: "2025-06-22"
+---
+
+```{r setup, include=FALSE}
+# get inferred sequences
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+# breakpoint label
+res$recomb <- ifelse(res$n_breakpoints > 0, 1, 0)
+# calculate expected number of transitions based on estimated parameter
+res$exp_transition <- 29902*(1-res$est_s)
+
+res_two_lineages <- res %>%
+  filter(str_count(parental_lineages, ";") == 1)
+res_two_lineages <- res_two_lineages %>%
+  separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";")
+
+# Canonicalize ordering
+res_two_lineages <- res_two_lineages %>%
+  mutate(
+    Lineage_1 = pmin(Lineage_A, Lineage_B),
+    Lineage_2 = pmax(Lineage_A, Lineage_B)) %>% select(-Lineage_A, -Lineage_B)
+
+res_two_lineages$test_start <- as.Date(res_two_lineages$test_start)
+res_two_lineages$test_end <- as.Date(res_two_lineages$test_end)
+
+res_two_lineages <- res_two_lineages %>% group_by(test_start, test_end, Lineage_1, Lineage_2) %>% summarise(n_inferred = n())
+
+### This should be good for inferred counts
+```
+
+```{r}
+# within each test window, get the number of inferred recombinants
+n_samples <- res %>% group_by(test_start, test_end) %>% summarize(n_samples = n())
+n_samples$test_start <- as.Date(n_samples$test_start)
+n_samples$test_end <- as.Date(n_samples$test_end)
+n_samples$midpoint <- n_samples$test_start + 
+                          (n_samples$test_end - n_samples$test_start) / 2
+```
+
+```{r}
+# get ons survey data
+ons_data <- read.delim("../data/ons_survey_data.tsv", sep = "\t", header = FALSE)
+ons_data$date <- as.Date(ons_data$V1, format = "%d %B %Y")  # Replace 'date' with the actual column name
+ons_data$prevalence <- ons_data$V2/100
+```
+
+```{r}
+# add ons mean prevalence within each test window
+n_samples <- n_samples %>%
+  mutate(
+    mean_prevalence = map2_dbl(test_start, test_end, ~ {
+      mean(ons_data$prevalence[ons_data$date >= .x & ons_data$date <= .y], na.rm = TRUE)
+    })
+  )
+```
+
+```{r}
+# get expected frequency of recombinants
+exp_freq <- read.csv("summary_files/combined_expected_recombinants.csv")
+exp_freq$test_start <- as.Date(exp_freq$test_start)
+exp_freq$test_end <- as.Date(exp_freq$test_end)
+
+# Canonicalize ordering
+exp_freq <- exp_freq %>%
+  mutate(
+    Lineage_1 = pmin(Lineage_A, Lineage_B),
+    Lineage_2 = pmax(Lineage_A, Lineage_B)) %>% select(-Lineage_A, -Lineage_B)
+
+# add the prevalence and sample size in each window to the expected frequencies
+exp_freq_with_sample_size <- exp_freq %>% left_join(n_samples %>% select(test_start, test_end, n_samples, mean_prevalence)) 
+
+# calculate expected count (k = 1, alpha = 1)
+exp_freq_with_sample_size <- exp_freq_with_sample_size %>% mutate(exp_count = Expected_Recombinant_Frequency*n_samples*mean_prevalence) %>% select(test_start, test_end, Lineage_1, Lineage_2, exp_count)
+```
+
+```{r}
+res_two_lineages <- res_two_lineages %>% full_join(exp_freq_with_sample_size)
+res_two_lineages$n_inferred <- ifelse(is.na(res_two_lineages$n_inferred), 0, res_two_lineages$n_inferred)
+res_two_lineages$exp_count <- ifelse(is.na(res_two_lineages$exp_count), 0, res_two_lineages$exp_count)
+```
+
+```{r}
+res_two_lineages_early_2021 <- res_two_lineages %>% filter(test_start <= as.Date("2021-05-01"), test_start >= as.Date("2021-01-01")) 
+
+res_two_lineages_early_2021_summary <- res_two_lineages_early_2021 %>% group_by(Lineage_1, Lineage_2) %>% summarise(exp = sum(exp_count), inf = sum(n_inferred)) %>% mutate(diff = inf-exp) %>% arrange(desc(diff))
+
+sum(res_two_lineages_early_2021_summary$exp, na.rm = TRUE)
+sum(res_two_lineages_early_2021_summary$inf, na.rm = TRUE)
+```
+
+```{r}
+res_two_lineages_early_2022 <- res_two_lineages %>% filter(test_start <= as.Date("2022-05-01"), test_start >= as.Date("2022-01-01")) 
+
+res_two_lineages_early_2022_summary <- res_two_lineages_early_2022 %>% group_by(Lineage_1, Lineage_2) %>% summarise(exp = sum(exp_count), inf = sum(n_inferred)) %>% mutate(diff = inf-exp) %>% arrange(desc(diff))
+
+sum(res_two_lineages_early_2022_summary$exp, na.rm = TRUE)
+sum(res_two_lineages_early_2022_summary$inf, na.rm = TRUE)
+
+write.csv(res_two_lineages_early_2022_summary, "early_2022.csv")
+
+res_two_lineages_early_2022 <- res_two_lineages %>% filter(test_start <= as.Date("2022-03-01"), test_start >= as.Date("2022-01-01")) 
+
+res_two_lineages_early_2022_summary <- res_two_lineages_early_2022 %>% group_by(Lineage_1, Lineage_2) %>% summarise(exp = sum(exp_count), inf = sum(n_inferred)) %>% mutate(diff = inf-exp) %>% arrange(desc(diff))
+
+sum(res_two_lineages_early_2022_summary$exp, na.rm = TRUE)
+sum(res_two_lineages_early_2022_summary$inf, na.rm = TRUE)
+
+write.csv(res_two_lineages_early_2022_summary, "January_to_March_2022.csv")
+```
+
+```{r}
+res_two_lineages_mid_2022 <- res_two_lineages %>% filter(test_start <= as.Date("2022-07-01"), test_start >= as.Date("2022-05-01")) 
+
+res_two_lineages_mid_2022_summary <- res_two_lineages_mid_2022 %>% group_by(Lineage_1, Lineage_2) %>% summarise(exp = sum(exp_count), inf = sum(n_inferred)) %>% mutate(diff = inf-exp) %>% arrange(diff)
+
+sum(res_two_lineages_mid_2022_summary$exp, na.rm = TRUE)
+sum(res_two_lineages_mid_2022_summary$inf, na.rm = TRUE)
+```
+
+```{r}
+res_two_lineages_2023 <- res_two_lineages %>% filter(test_start >= as.Date("2023-06-01"), test_start <= as.Date("2023-12-01")) 
+
+res_two_lineages_2023_summary <- res_two_lineages_2023 %>% group_by(Lineage_1, Lineage_2) %>% summarise(inf = sum(n_inferred))
+
+res_two_lineages_2024 <- res_two_lineages %>% filter(test_start >= as.Date("2024-01-01")) 
+
+res_two_lineages_2024_summary <- res_two_lineages_2024 %>% group_by(Lineage_1, Lineage_2) %>% summarise(inf = sum(n_inferred))
+```
+
+```{r}
+res_two_lineages_during_ons <- res_two_lineages %>%
+  filter(test_start < as.Date("2023-03-20"))
+
+sum(res_two_lineages_during_ons$n_inferred)
+sum(res_two_lineages_during_ons$exp_count)
+```
+```{r}
+
+```
+

@@ -1,0 +1,363 @@
+---
+title: "inferred_vs_expected"
+output: html_document
+date: "2025-06-22"
+---
+
+```{r setup, include=FALSE}
+# ───────────────────────────────────────── setup ─────────────────────────────────────────
+# Static figure (PNG only): Expected vs. Inferred SARS-CoV-2 recombinants
+# Author  : <your-name-here>
+# Updated : 2025-06-26
+# ────────────────────────────────────────────────────────────────────────────────
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(lubridate)
+  library(ggrepel)
+  library(stringr)
+  library(viridis) 
+})
+
+# ─────────────────────── paths & constants ─────────────────────────────────────
+dir_data    <- "summary_files"
+file_res    <- file.path(dir_data, "combined_optimization_results_with_summary.csv")
+file_ham    <- file.path(dir_data, "hamming_distances.csv")
+file_exp    <- file.path(dir_data, "combined_expected_recombinants.csv")
+file_ons    <- "../data/ons_survey_data.tsv"
+file_alias  <- file.path(dir_data, "pango_alias_mapping.csv")
+
+GENOME_LEN  <- 29902                  # SARS-CoV-2 genome length
+CUTOFF_DATE <- ymd("2023-03-20")     # last ONS date to consider
+
+# ─────────────────────── 1) optimisation results ──────────────────────────────
+res <- read_csv(file_res, show_col_types = FALSE) %>%
+  mutate(
+    recom          = n_breakpoints > 0,
+    exp_transition = GENOME_LEN * (1 - est_s),
+    across(c(test_start, test_end), as.Date)
+  )
+
+# keep windows with exactly two parental lineages and pre-cutoff
+res_two <- res %>%
+  filter(str_count(parental_lineages, ";") == 1, test_start < CUTOFF_DATE)
+
+# count inferred recombinants per lineage pair
+res_pair_counts <- res_two %>%
+  separate(parental_lineages, c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B),
+         .keep     = "unused") %>%
+  group_by(Lineage_1, Lineage_2) %>%
+  summarise(
+    n = n(),
+    mean_mmpp = mean(mmpp, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ─────────────────────── 2) per-window sample size & prevalence ──────────────
+win_stats <- res %>%
+  group_by(test_start, test_end) %>%
+  summarise(n_recomb = sum(recom), n_samples = n(), .groups = "drop")
+
+ons <- read_delim(file_ons, delim = "\t", col_names = FALSE, show_col_types = FALSE) %>%
+  transmute(date = as.Date(X1, "%d %B %Y"), prevalence = X2 / 100)
+
+win_stats <- win_stats %>%
+  rowwise() %>%
+  mutate(mean_prevalence = mean(ons$prevalence[ons$date >= test_start & ons$date <= test_end], na.rm = TRUE)) %>%
+  ungroup()
+
+# ─────────────────────── 3) expected recombinant counts ───────────────────────
+exp_freq <- read_csv(file_exp, show_col_types = FALSE) %>%
+  mutate(across(c(test_start, test_end), as.Date)) %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B),
+         .keep = "unused") %>%
+  left_join(win_stats, by = c("test_start", "test_end")) %>%
+  mutate(exp_count = Expected_Recombinant_Frequency * n_samples * mean_prevalence) %>%
+  filter(test_start < CUTOFF_DATE)
+
+exp_by_pair <- exp_freq %>%
+  group_by(Lineage_1, Lineage_2) %>%
+  summarise(exp_count = sum(exp_count), .groups = "drop")
+
+# ─────────────────────── 4) merge with hamming distances + get ancestral vs. sister relationships ──────────────────────
+hamming <- read_csv(file_ham, show_col_types = FALSE)
+alias <- read_csv(file_alias, show_col_types = FALSE)
+
+pair_df <- exp_by_pair %>% 
+  full_join(res_pair_counts, by = c("Lineage_1", "Lineage_2")) %>% 
+  mutate(across(where(is.numeric), replace_na, 0)) %>% 
+  filter(!Lineage_1 %in% "other", !Lineage_2 %in% "other") %>% 
+  left_join(hamming, by = c("Lineage_1", "Lineage_2")) %>% 
+  mutate(
+    pair_name = paste(Lineage_1, Lineage_2, sep = " + "),
+    highlight = exp_count > 125 | n > 125
+  ) %>% 
+  
+  # add un-aliased columns
+  left_join(
+    alias %>% 
+      rename(Lineage_1 = lineage_alias,
+             lineage_1_unaliased = lineage_unaliased),
+    by = "Lineage_1"
+  ) %>% 
+  left_join(
+    alias %>% 
+      rename(Lineage_2 = lineage_alias,
+             lineage_2_unaliased = lineage_unaliased),
+    by = "Lineage_2"
+  ) %>% 
+  
+  # check substring relationship
+  mutate(
+    is_substring = if_else(
+      !is.na(lineage_1_unaliased) & !is.na(lineage_2_unaliased) &
+        (
+          str_detect(lineage_2_unaliased, fixed(lineage_1_unaliased)) |
+          str_detect(lineage_1_unaliased, fixed(lineage_2_unaliased))
+        ),
+      TRUE, FALSE
+    )
+  )
+
+# ─────────────────────── 5) static plot ───────────────────────────────────────
+
+p <- ggplot(pair_df, aes(exp_count, n, colour = Hamming_Distance)) +
+  geom_point() +
+  geom_text_repel(data = subset(pair_df, highlight),
+                  aes(label = pair_name),
+                  size = 3, min.segment.length = 0) +
+  geom_abline(linetype = "dashed", colour = "grey") +
+  scale_color_continuous(trans = "log10", name = "Hamming distance") +
+  labs(x = "Expected count", y = "Inferred count") +
+  theme_bw()
+
+# ─────────────────────── 6) save PNG to figs/ ────────────────────────────────
+if (!dir.exists("figs")) dir.create("figs")
+
+width_mm  <- 170   # full-column width; set 85 for single-column
+height_mm <- 100   # adjust for aspect ratio
+
+fig_png <- "figs/fig_expected_vs_inferred.png"
+
+ggsave(fig_png, plot = p,
+       width = width_mm, height = height_mm, units = "mm",
+       dpi = 300, bg = "white")
+
+message("Saved PNG figure to: ", fig_png)
+
+# ──────────────────── 5b) faceted plot ──────────────────────────────────────
+p_faceted2 <- ggplot(pair_df, aes(exp_count, n)) +
+  geom_point(color = "grey30", alpha = 0.7, size = 2) +
+  geom_text_repel(
+    data = subset(pair_df, highlight),
+    aes(label = pair_name),
+    size = 3, min.segment.length = 0, show.legend = FALSE
+  ) +
+  geom_abline(linetype = "dashed", colour = "grey") +
+  labs(x = "Expected count", y = "Inferred count") +
+  facet_wrap(
+    ~ is_substring,
+    nrow = 1,
+    labeller = labeller(
+      is_substring = c(
+        `TRUE`  = "Lineages nested",
+        `FALSE` = "Lineages non-nested"
+      )
+    )
+  ) +
+  theme_bw() +
+  theme(
+    legend.position = "none"    # no legend needed now
+  )
+
+# ─────────────────────── 6b) save faceted PNG ───────────────────────────────
+if (!dir.exists("figs")) dir.create("figs")
+
+fig_png_faceted <- "figs/fig_expected_vs_inferred_faceted.png"
+
+ggsave(
+  fig_png_faceted, plot = p_faceted2,
+  width  = 170,   # mm  (adjust if you need single-column = 85 mm)
+  height = 100,
+  units  = "mm",
+  dpi    = 300,
+  bg     = "white"
+)
+
+message("Saved faceted PNG figure to: ", fig_png_faceted)
+
+r_val <- cor(pair_df$exp_count, pair_df$n, use = "complete.obs")
+
+p2 <- ggplot(pair_df, aes(exp_count, n, colour = Hamming_Distance)) +
+  geom_point(alpha = 0.8, size = 2) +
+  geom_text_repel(
+    data = subset(pair_df, highlight),
+    aes(label = pair_name),
+    size = 3, min.segment.length = 0
+  ) +
+  geom_abline(linetype = "dashed", colour = "grey50") +
+  scale_color_viridis_c(
+    option = "plasma",
+    name   = "Hamming distance",
+    guide  = guide_colorbar(
+      barwidth       = unit(5, "cm"),
+      barheight      = unit(0.4, "cm"),
+      title.position = "top",
+      title.hjust    = 0.5
+    )
+  ) +
+  labs(x = "Rule-of-thumb", y = "Detected count", caption = sprintf("Pearson r = %.2f", r_val)) +
+  theme_bw() +
+  theme(
+    legend.position  = "bottom",
+    legend.direction = "horizontal",
+    plot.caption = element_text(
+                              size = 11,
+                              hjust = 1,             # right-align
+                              vjust = 30        # alt. way: >1 moves up
+                            )
+  )
+
+
+
+pair_df <- pair_df %>%
+  mutate(
+    hd_cat = cut(Hamming_Distance,
+                 breaks = quantile(Hamming_Distance, probs = seq(0,1,0.25), na.rm = TRUE),
+                 include.lowest = TRUE,
+                 labels = c("0–25%", "25–50%", "50–75%", "75–100%"))
+  )
+
+# ── Save the viridis‐coloured plot ────────────────────────────────────────────
+fig_png_p2 <- "figs/fig_expected_vs_inferred_viridis.png"
+
+ggsave(
+  filename = fig_png_p2,
+  plot     = p2,
+  width    = 6,    # re-use your existing width_mm (170 mm)
+  height   = 6,   # and height_mm (100 mm)
+  units    = "in",
+  dpi      = 300,
+  bg       = "white"
+)
+
+message("Saved viridis plot to: ", fig_png_p2)
+
+p3 <- ggplot(pair_df, aes(exp_count, n, colour = Hamming_Distance)) +
+  geom_point(alpha = 0.7) +
+  geom_abline(linetype = "dashed", colour = "grey") +
+  scale_color_viridis_c(option = "plasma", guide = "none") +
+  facet_wrap(~ hd_cat, nrow = 2, scales = "free") +
+  labs(x = "Expected count", y = "Inferred count") +
+  theme_bw()
+```
+
+```{r}
+p
+p2
+p_faceted2
+p3
+```
+
+```{r}
+mmpp_summary <- res_two %>%
+  separate(parental_lineages, c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B),
+         .keep     = "unused") %>%
+  group_by(Lineage_1, Lineage_2) %>%
+  summarise(
+    min    = min(mmpp, na.rm = TRUE),
+    q1     = quantile(mmpp, 0.25, na.rm = TRUE),
+    median = median(mmpp, na.rm = TRUE),
+    q3     = quantile(mmpp, 0.75, na.rm = TRUE),
+    max    = max(mmpp, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+
+pair_df$prop_inf <- pair_df$n/pair_df$exp_count
+pair_df_high_inferred <- pair_df %>% filter(prop_inf >= 30) 
+pair_df_high_inferred <- pair_df_high_inferred %>% left_join(mmpp_summary)
+```
+
+```{r}
+res_low_mmpp <- res %>% filter(mmpp <= 0.5, recom == TRUE)
+
+# contains a lot of B.1.1 + BA.1
+res_two_low_mmpp <- res_two %>% filter(mmpp <= 0.6) %>%
+  separate(parental_lineages, c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B),
+         .keep     = "unused") %>%
+  group_by(Lineage_1, Lineage_2) %>%
+  summarise(
+    n = n(),
+    mean_mmpp = mean(mmpp, na.rm = TRUE),
+    .groups = "drop"
+  )
+```
+
+```{r}
+# check if this can explain excess recombinants?
+res_two_low_mmpp %>% left_join(pair_df %>% select(Lineage_1, Lineage_2, n, exp_count, prop_inf), by = c("Lineage_1", "Lineage_2"))
+```
+
+```{r}
+# source("plot_mosaic.R")
+# 
+# res_two_lineages <- res_two_lineages %>% separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";")
+# # Canonicalize ordering
+# res_two_lineages <- res_two_lineages %>%
+#   mutate(
+#     Lineage_1 = pmin(Lineage_A, Lineage_B),
+#     Lineage_2 = pmax(Lineage_A, Lineage_B)) %>% select(-Lineage_A, -Lineage_B)
+# 
+# plot_mosaic(res_two_lineages, "AY.5", "B.1.617.2", sample = 70)
+# get_mean_entropy(res_two_lineages, "AY.9", "B.1.617.2")
+# 
+# plot_mosaic(res_two_lineages, "B.1.1.7", "B.1.177", sample = 50)
+```
+
+```{r}
+# res_vs_expected_by_lineage <- res_vs_expected_by_lineage %>%
+#   rowwise() %>%
+#   mutate(entropy = get_mean_entropy(res_two_lineages, Lineage_1, Lineage_2, genome_length = 29903)) %>%
+#   ungroup()
+# res_vs_expected_by_lineage$mean_entropy <- ifelse(is.na(res_vs_expected_by_lineage$entropy), 0, res_vs_expected_by_lineage$entropy)
+# 
+# # Add tooltip label
+# res_vs_expected_by_lineage <- res_vs_expected_by_lineage %>%
+#   mutate(label = paste0("A: ", Lineage_1,
+#                         "\nB: ", Lineage_2,
+#                         "\nEntropy: ", signif(entropy, 3)))
+# 
+# # Plot with color by mean entropy (linear scale or log if needed)
+# p <- ggplot(res_vs_expected_by_lineage, aes(
+#     x = exp_count, 
+#     y = n, 
+#     text = label, 
+#     color = entropy
+#   )) +
+#   geom_point() +
+#   geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+#   scale_color_viridis_c(option = "plasma", name = "Mean Entropy") +
+#   labs(x = "Expected Recombinants", y = "Inferred Recombinants") +
+#   theme_bw()
+# 
+# ggplotly(p, tooltip = "text")
+```
+
+```{r}
+# res_vs_expected_by_lineage$freq_inferred <- res_vs_expected_by_lineage$n/res_vs_expected_by_lineage$exp_count
+# 
+# ggplot(res_vs_expected_by_lineage, aes(x = Hamming_Distance, y = freq_inferred)) + geom_point() + ylim(0, 1)
+# ggplot(res_vs_expected_by_lineage, aes(x = mean_entropy, y = freq_inferred)) + geom_point() 
+```
+
+
+
+

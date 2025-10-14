@@ -1,0 +1,32 @@
+---
+title: "analyze-sim-results"
+output: html_document
+date: "2025-07-11"
+---
+
+```{r}
+# library(R.utils)
+# 
+# gunzip("../sim-3/output/inferred/optimization_results_controls.csv",
+#        destname = "output/optimization_results_controls.out",
+#        remove = FALSE)
+# 
+# gunzip("../sim-3/output/inferred/inferred_lineages_controls.json",
+#        destname = "output/inferred_lineages_controls.out",
+#        remove = FALSE)
+# 
+# gunzip("../sim-3/output/inferred/optimization_results.csv",
+#        destname = "output/optimization_results.out",
+#        remove = FALSE)
+# 
+# gunzip("../sim-3/output/inferred/inferred_lineages.json",
+#        destname = "output/inferred_lineages.out",
+#        remove = FALSE)
+
+controls_df   <- read.csv("output/optimization_results_controls.out")
+cases_df   <- read.csv("output/optimization_results.out")
+
+controls_json   <- jsonlite::fromJSON("output/inferred_lineages_controls.out")
+cases_json   <- jsonlite::fromJSON("output/inferred_lineages.out")
+```
+

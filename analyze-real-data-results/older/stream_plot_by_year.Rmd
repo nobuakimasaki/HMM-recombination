@@ -1,0 +1,205 @@
+---
+
+title: "Stream Plot by Year"
+output: html\_document
+date: "2025-06-25"
+---
+
+```{r setup, include=FALSE}
+# ────────────────────────────────── libraries ─────────────────────────────────
+library(ggstream)
+library(tidyverse)
+library(lubridate)
+library(RColorBrewer)
+library(purrr)
+library(glue)
+library(patchwork)
+
+# ─────────────────────────────── input / output ──────────────────────────────
+if (!dir.exists("figs")) dir.create("figs")
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+# ─────────────────────────────── preprocessing ───────────────────────────────
+res_two_lineages <- res %>%
+  mutate(recomb         = if_else(n_breakpoints > 0, 1, 0),
+         exp_transition = 29902 * (1 - est_s)) %>%
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B)) %>%
+  select(-Lineage_A, -Lineage_B) %>%
+  mutate(test_start = as.Date(test_start),
+         test_end   = as.Date(test_end)) %>%
+  group_by(test_start, test_end, Lineage_1, Lineage_2) %>%
+  summarise(n_inferred = n(), .groups = "drop") %>%
+  mutate(date         = test_start + (test_end - test_start) / 2,
+         lineage_pair = map2_chr(Lineage_1, Lineage_2, ~ paste(sort(c(.x, .y)), collapse = " + ")),
+         year         = year(date),
+         half         = if_else(month(date) <= 6, "H1", "H2"))
+```
+
+```{r helpers, include=FALSE}
+# palette helper --------------------------------------------------------------
+palette_auto <- function(n) colorRampPalette(brewer.pal(12, "Paired"))(n)
+
+# master plotting function ----------------------------------------------------
+make_stream_plots <- function(df,
+                             year_label   = NULL,
+                             y_count_max  = NULL,
+                             drop_yaxis   = FALSE,
+                             show_x_title = FALSE,
+                             fixed_cols   = NULL,
+                             legend_title = "Lineage combination") {
+
+  # ── choose the 8 most abundant combos first ────────────────────────────────
+  top_by_size <- df %>%
+    filter(Lineage_1 != "other", Lineage_2 != "other") %>%
+    count(lineage_pair, wt = n_inferred, name = "tot") %>%
+    slice_max(tot, n = 8, with_ties = FALSE) %>%
+    pull(lineage_pair)
+
+  # ── reorder those 8 by their first appearance date ─────────────────────────
+  top8 <- df %>%
+    filter(lineage_pair %in% top_by_size) %>%
+    group_by(lineage_pair) %>%
+    summarise(first_date = min(date), .groups = "drop") %>%
+    arrange(first_date, lineage_pair) %>%
+    pull(lineage_pair)
+
+  fill_lvls <- c("Other", top8)
+
+  df <- df %>% mutate(fill_cat = if_else(lineage_pair %in% top8, lineage_pair, "Other"))
+
+  stream <- df %>%
+    complete(date = seq(min(date), max(date), by = "week"),
+             nesting(lineage_pair, fill_cat),
+             fill = list(n_inferred = 0)) %>%
+    group_by(date, lineage_pair, fill_cat) %>%
+    summarise(n_inferred = sum(n_inferred), .groups = "drop")
+  stream$fill_cat <- factor(stream$fill_cat, levels = fill_lvls)
+
+  # colours -------------------------------------------------------------------
+  if (is.null(fixed_cols)) {
+    fill_cols <- setNames(palette_auto(length(fill_lvls)), fill_lvls)
+  } else {
+    fill_cols <- fixed_cols
+    missing <- setdiff(fill_lvls, names(fill_cols))
+    if (length(missing) > 0) fill_cols <- c(fill_cols, setNames(palette_auto(length(missing)), missing))
+  }
+  fill_cols["Other"] <- "grey85"
+
+  # expose for Environment pane ----------------------------------------------
+  assign("top8_current",  top8,      envir = .GlobalEnv)
+  assign("fill_cols_current", fill_cols, envir = .GlobalEnv)
+
+  border_cols <- setNames(rep("grey40", length(unique(stream$lineage_pair))),
+                          unique(stream$lineage_pair))
+  border_cols[top8] <- NA
+
+  # shared theme --------------------------------------------------------------
+  base_theme <- theme_bw() + theme(axis.title.x = element_blank())
+  if (drop_yaxis) base_theme <- base_theme +
+    theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+  date_scale <- scale_x_date(date_labels = "%b %Y")
+
+  # proportional --------------------------------------------------------------
+  p_prop <- ggplot(stream, aes(date, n_inferred, fill = fill_cat, colour = lineage_pair)) +
+    geom_stream(type = "proportional", size = 0.25, bw = 0.75) +
+    scale_fill_manual(values = fill_cols, breaks = top8) +
+    scale_colour_manual(values = border_cols, guide = "none") +
+    date_scale +
+    labs(y = "Proportion") +
+    base_theme +
+    theme(legend.position = "none")
+  if (!is.null(year_label))
+    p_prop <- p_prop + ggtitle(year_label) +
+      theme(plot.title = element_text(hjust = 0, size = 12))
+
+  # count ---------------------------------------------------------------------
+  p_cnt <- ggplot(stream, aes(date, n_inferred, fill = fill_cat, colour = lineage_pair)) +
+    geom_stream(type = "ridge", size = 0.25, bw = 0.75) +
+    scale_fill_manual(values = fill_cols, name = NULL, breaks = top8) +
+    scale_colour_manual(values = border_cols, guide = "none") +
+    date_scale +
+    labs(y = "Count") +
+    base_theme +
+    theme(legend.position = "bottom", legend.text = element_text(size = 6), legend.title = element_text(size = 7))
+  if (show_x_title) p_cnt <- p_cnt + labs(x = "Date")
+  if (!is.null(y_count_max)) p_cnt <- p_cnt + scale_y_continuous(limits = c(0, y_count_max))
+
+  (p_prop) / (p_cnt) + plot_layout(heights = c(1, 1))
+}
+```
+
+```{r build_plots}
+all_plots <- list()
+years <- sort(unique(res_two_lineages$year))
+
+walk(years, function(yr) {
+  df_year <- res_two_lineages %>% filter(year == yr)
+  if (nrow(df_year) == 0) return()
+
+  if (yr %in% c(2022, 2023)) {
+    periods <- list(H1 = df_year %>% filter(half == "H1"), H2 = df_year %>% filter(half == "H2"))
+
+    top_union_size <- periods %>%
+      map(~ .x %>% filter(Lineage_1 != "other", Lineage_2 != "other") %>%
+            count(lineage_pair, wt = n_inferred, name = "tot") %>%
+            slice_max(tot, n = 8, with_ties = FALSE) %>%
+            pull(lineage_pair)) %>%
+      unlist() %>% unique()
+
+    top_union <- df_year %>%
+      filter(lineage_pair %in% top_union_size) %>%
+      group_by(lineage_pair) %>%
+      summarise(first_date = min(date), .groups = "drop") %>%
+      arrange(first_date, lineage_pair) %>%
+      pull(lineage_pair)
+
+    shared_cols <- setNames(palette_auto(length(top_union)), top_union)
+    shared_cols["Other"] <- "grey85"
+
+    y_max <- df_year %>%
+      group_by(date) %>% summarise(total = sum(n_inferred), .groups = "drop") %>%
+      summarise(max_total = max(total)) %>% pull(max_total)
+
+    period_plots <- list()
+    first <- TRUE
+    walk2(names(periods), periods, function(nm, df_p) {
+      if (nrow(df_p) == 0) return()
+      period_plots[[nm]] <<- make_stream_plots(df_p,
+        year_label   = if (first) as.character(yr) else NULL,
+        y_count_max  = y_max,
+        drop_yaxis   = !first,
+        fixed_cols   = shared_cols,
+        legend_title = if (nm == "H2") "" else "Lineage combination")
+      first <<- FALSE
+    })
+
+    composite <- wrap_plots(period_plots, ncol = length(period_plots))
+
+  } else {
+    show_x <- yr == max(years)
+    composite <- make_stream_plots(df_year, year_label = as.character(yr), show_x_title = show_x)
+  }
+
+  ggsave(glue("figs/lineage_pairs_{yr}_combined.png"), composite, width = 12, height = 8, dpi = 300)
+  print(composite)
+  all_plots[[as.character(yr)]] <<- composite
+})
+```
+
+```{r}
+if (exists("all_plots") && length(all_plots) > 0) {
+  stacked <- wrap_plots(plotlist = all_plots, ncol = 1) +
+    plot_layout(guides = "keep") &
+    theme(legend.text = element_text(size = 6), legend.title = element_text(size = 7))
+
+  ggsave("figs/lineage_pairs_all_years_vertical.png", stacked, width = 12, height = 6 * length(all_plots), dpi = 300)
+
+  stacked
+} else {
+  warning("`all_plots` is empty — did the build_plots chunk run with <<- assignment?")
+}
+```

@@ -1,0 +1,215 @@
+---
+title: "time_series_simple"
+output: html_document
+date: "2025-07-13"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(scales)
+
+# ── Inferred recombinants ─────────────────────────────────────────────────────
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv") %>%
+  mutate(across(c(test_start, test_end), as.Date)) %>%
+  mutate(date       = test_start + (test_end - test_start) / 2)
+
+res_pairs <- res %>%
+  add_count(date, name = "n_samples") %>%          # <- adds n_samples per date
+  filter(str_count(parental_lineages, ";") >= 1) %>%
+  group_by(date, n_samples) %>%                    # keep n_samples in the key
+  summarise(n_inferred = n(), .groups = "drop")
+
+# Exact binomial CIs ⇒ *count* scale
+ci_exact <- function(k, n) binom.test(k, n)$conf.int
+
+summary_df <- res_pairs %>%
+  mutate(
+    ci_lo       = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[1] * .y),
+    ci_hi       = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[2] * .y),
+    ci_prop_lo  = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[1]),
+    ci_prop_hi  = map2_dbl(n_inferred, n_samples, ~ ci_exact(.x, .y)[2])
+  )
+```
+
+```{r}
+summary_df$prop <- summary_df$n_inferred/summary_df$n_samples
+
+p_prop <- ggplot(summary_df, aes(date, prop)) +
+
+  ## 95 % CI ribbon  (no legend)
+  geom_ribbon(
+    aes(ymin = ci_prop_lo, ymax = ci_prop_hi),
+    fill  = "lightblue", alpha = 0.3, show.legend = FALSE
+  ) +
+
+  ## detected proportion (black line)
+  geom_line(aes(colour = "Detected"), linewidth = 0.4) +
+
+  ## invisible line used *only* to generate the legend key for 95 % CI
+  geom_line(
+    aes(colour = "95% CI"),
+    linewidth = 0.4, alpha = 0       # drawn with α = 0 so it isn’t visible
+  ) +
+
+  ## single colour scale → single legend
+  scale_colour_manual(
+    breaks = c("Detected", "95% CI"),
+    values = c("Detected" = "black",
+               "95% CI"   = "lightblue"),
+    name   = NULL,
+    guide  = guide_legend(
+      override.aes = list(          # what the legend keys look like
+        linetype = c("solid", "solid"),
+        size     = c(0.4, 0.4),
+        alpha    = 1                # keys are fully opaque
+      )
+    )
+  ) +
+
+  scale_y_continuous(
+    labels = percent_format(accuracy = 0.1),
+    limits = c(0, 0.10)
+  ) +
+  labs(x = "Date", y = "Proportion detected as recombinant") +
+  theme_bw() +
+  theme(
+    legend.position      = c(0.98, 0.98),
+    legend.justification = c(1, 1),
+    legend.background    = element_rect(fill = "white", colour = NA)
+  )
+
+p_prop
+
+ggsave(
+  "figs/recombinant_prop_time_series.png",
+  plot   = p_prop,
+  width  = 10, height = 4, dpi = 300, units = "in"
+)
+```
+
+```{r}
+# ── 1. Read and prepare ONS data ─────────────────────────────────────────
+ons <- read.table("../data/ons_survey_data.tsv")
+ons$prop <- ons$V4 / 100
+
+ons$date <- as.Date(
+  paste(ons$V3, ons$V2, ons$V1, sep = "-"),   # "2023-March-1"
+  format = "%Y-%B-%d"
+)
+
+# ── 2. Build the original plot (your code) ──────────────────────────────
+summary_df$prop <- summary_df$n_inferred / summary_df$n_samples
+
+p_prop <- ggplot(summary_df, aes(date, prop)) +
+  geom_ribbon(
+    aes(ymin = ci_prop_lo, ymax = ci_prop_hi, colour = NULL),  # no colour mapping
+    fill  = "lightblue", alpha = 0.3, show.legend = FALSE
+  ) +
+  geom_line(aes(colour = "Detected"), linewidth = 0.4) +
+  geom_line(aes(colour = "95% CI"),    linewidth = 0.4, alpha = 0) +
+
+  ## ── 3.  ONS line with its own colour mapping  ──
+  geom_line(
+    data   = ons,
+    aes(x = date, y = prop, colour = "ONS prevalence"),
+    linewidth = 0.4
+  ) +
+
+  ## single discrete colour scale for all three keys
+  scale_colour_manual(
+    breaks = c("Detected", "95% CI", "ONS prevalence"),
+    values = c("Detected"       = "black",
+               "95% CI"         = "lightblue",
+               "ONS prevalence" = "red"),
+    name   = NULL,
+    guide  = guide_legend(
+      override.aes = list(
+        linetype = rep("solid", 3),
+        size     = rep(0.4,    3),
+        alpha    = rep(1,      3)
+      )
+    )
+  ) +
+
+  scale_y_continuous(
+    labels  = percent_format(accuracy = 0.1),
+    limits  = c(0, 0.10)
+  ) +
+  labs(
+    x = "Date",
+    y = "Proportion detected as recombinant"
+  ) +
+  theme_bw() +
+  theme(
+    legend.position      = c(0.98, 0.98),
+    legend.justification = c(1, 1),
+    legend.background    = element_rect(fill = "white", colour = NA)
+  )
+
+# ── 4. Save figure ──────────────────────────────────────────────────────
+ggsave(
+  "figs/recombinant_prop_time_series_with_ONS.png",
+  plot   = p_prop,
+  width  = 10, height = 4, dpi = 300, units = "in"
+)
+
+```
+
+```{r}
+# ── 3. Build the plot with larger fonts ────────────────────────────────
+base_font <- 27           # try 18–22 for slides
+
+p_prop <- ggplot(summary_df, aes(date, prop)) +
+  geom_ribbon(
+    aes(ymin = ci_prop_lo, ymax = ci_prop_hi), 
+    fill = "lightblue", alpha = 0.3, show.legend = FALSE
+  ) +
+  geom_line(aes(colour = "Detected"),    linewidth = 0.4) +
+  geom_line(aes(colour = "95% CI"),      linewidth = 0.4, alpha = 0) +
+  geom_line(
+    data = ons,
+    aes(date, prop, colour = "ONS prevalence"),
+    linewidth = 0.4
+  ) +
+  scale_colour_manual(
+  breaks = c("Detected", "95% CI", "ONS prevalence"),
+  values = c(
+    "Detected"       = "black",
+    "95% CI"         = "lightblue",
+    "ONS prevalence" = "red"
+  ),
+  # Optional pretty labels:
+  labels = c(
+    "Detected"       = "Proportion detected as recombinant",
+    "95% CI"         = "95% CI",
+    "ONS prevalence" = "Population prevalence of SARS-CoV-2"
+  ),
+  name = NULL,
+  guide = guide_legend(
+    override.aes = list(linetype = "solid", size = 0.4, alpha = 1))
+  
+) +
+  scale_y_continuous(
+    labels = percent_format(accuracy = 0.1),
+    limits = c(0, 0.10)
+  ) +
+  labs(
+    x = "Date",
+    y = "Proportion"
+  ) +
+  theme_bw(base_size = base_font) +       # ← master font knob
+  theme(
+    legend.position      = c(0.98, 0.98),
+    legend.justification = c(1, 1),
+    legend.background    = element_rect(fill = "white", colour = NA)
+  )
+
+p_prop
+
+ggsave(
+  "figs/recombinant_prop_time_series_with_ONS.png",
+  plot   = p_prop,
+  width  = 12, height = 6, dpi = 300, units = "in"
+)
+```
+

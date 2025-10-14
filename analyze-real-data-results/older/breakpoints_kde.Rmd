@@ -1,0 +1,191 @@
+---
+title: "breakpoints"
+output: html_document
+date: "2025-06-27"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggrepel)
+library(viridis)
+library(readr)
+library(patchwork)
+
+# ───────────────── 0) load gene annotations from GFF ─────────────────────────
+gene_ann <- read_tsv(
+  "../data/gene_annotation.gff",
+  comment = "#",
+  col_names = FALSE,
+  show_col_types = FALSE
+)
+colnames(gene_ann) <- c(
+  "seqid","source","feature","start",
+  "end","score","strand","phase","attributes"
+)
+focal_genes <- c("ORF1ab", "S", "N")
+gene_bounds <- gene_ann %>%
+  filter(feature == "gene") %>%
+  mutate(
+    gene = str_extract(attributes, "(?<=Name=)[^;]+"),
+    gene = if_else(is.na(gene),
+                   str_extract(attributes, "(?<=ID=)[^;]+"),
+                   gene),
+    mid = (start + end) / 2
+  ) %>%
+  select(start, end, mid, gene)
+
+# ───────────────── 1) load and tidy breakpoint data ─────────────────────────
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+break_df <- res %>%
+  filter(!is.na(breakpoints) & breakpoints != "") %>%
+  mutate(breakpoint_vec = str_split(breakpoints, ";")) %>%
+  unnest_longer(breakpoint_vec, values_to = "break_pos") %>%
+  mutate(break_pos = as.numeric(break_pos))
+
+# ───────────────── 2) compute bins & downstream region parameters ──────────
+bin_width    <- 200
+breaks_seq   <- seq(0, 30000, by = bin_width)
+orfl3a_start <- gene_bounds %>% filter(gene == "ORF3a") %>% pull(start)
+orf10_end    <- gene_bounds %>% filter(gene == "ORF10") %>% pull(end)
+break_df_post <- break_df %>%
+  filter(break_pos >= orfl3a_start, break_pos <= orf10_end)
+
+if (!dir.exists("figs")) dir.create("figs")
+```
+
+```{r}
+gene_track <- ggplot(gene_bounds) +
+  geom_rect(
+    aes(xmin = start, xmax = end, ymin = 0, ymax = 0.15, fill = gene),
+    colour = "grey50", size = 0.3, alpha = 0.6
+  ) +
+  geom_text(
+    data = filter(gene_bounds, gene %in% focal_genes),
+    aes(x = mid, y = 0.075, label = gene),
+    vjust = 0.5, size = 3, colour = "grey20"
+  ) +
+  scale_fill_viridis_d(
+    option = "plasma", direction = 1,
+    name = "Gene",
+    guide = guide_legend(nrow = 1, byrow = TRUE)
+  ) +
+  scale_x_continuous(
+    breaks = breaks_seq,
+    limits = c(min(breaks_seq), max(breaks_seq)),
+    expand = expansion(add = 0)
+  ) +
+  scale_y_continuous(limits = c(0, 0.15), expand = expansion(add = 0)) +
+  theme_void() +
+  theme(
+    legend.position = "none",
+    plot.margin     = unit(c(0,1,0,1), "lines")
+  )
+```
+
+```{r}
+p_kde_all <- ggplot(break_df, aes(x = break_pos)) +
+  geom_density(
+    aes(y = after_stat(count)),
+    bw = "ucv",
+    adjust = 1,
+    colour = "grey40",
+    fill   = viridis(1, begin = 0.4, end = 0.8),
+    alpha  = 0.8
+  ) +
+  labs(
+    x = "Genomic position (nt)",
+    y = "Estimated breakpoint count"
+  ) +
+  scale_x_continuous(
+    limits = c(min(breaks_seq), max(breaks_seq)),
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  theme_bw(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+
+combined_kde_plot <- gene_track / p_kde_all +
+  plot_layout(heights = c(1, 6))
+
+ggsave(
+  "figs/breakpoints_overall_kde_track.png",
+  combined_kde_plot,
+  width = 170, height = 100,
+  units = "mm", dpi = 300, bg = "white"
+)
+
+combined_kde_plot
+```
+
+```{r postORF3a-track, fig.cap="Gene track downstream of ORF3a with aligned axis."}
+# Gene track for genes downstream of ORF3a, aligned to histogram limits
+gb_post <- gene_bounds %>% filter(start >= orfl3a_start, end <= orf10_end)
+
+post_track <- ggplot(gb_post) +
+  geom_rect(
+    aes(xmin = start, xmax = end, ymin = 0, ymax = 0.15, fill = gene),
+    colour = "grey50", size = 0.3, alpha = 0.6
+  ) +
+  geom_text(
+    data = filter(gb_post, !gene %in% c("ORF6","ORF7b","ORF10")),
+    aes(x = mid, y = 0.075, label = gene),
+    angle = 0, vjust = 0.5, size = 3, colour = "grey20"
+  ) +
+  scale_fill_viridis_d(option = "plasma", direction = 1, drop = FALSE) +
+  scale_x_continuous(
+    breaks = breaks_post,
+    limits = c(orfl3a_start, orf10_end),
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  scale_y_continuous(limits = c(0,0.15), expand = expansion(add = 0)) +
+  theme_void() +
+  theme(
+    legend.position = "none",
+    plot.margin     = unit(c(0,1,0,1), "lines")
+  )
+```
+
+```{r}
+p_kde_post <- ggplot(break_df_post, aes(x = break_pos)) +
+  geom_density(
+    aes(y = after_stat(count)),
+    bw = "ucv",
+    adjust = 1,
+    colour = "grey40",
+    fill   = viridis(1, begin = 0.4, end = 0.8),
+    alpha  = 0.8
+  ) +
+  labs(
+    x = "Genomic position (nt)",
+    y = "Estimated breakpoint count"
+  ) +
+  scale_x_continuous(
+    limits = c(orfl3a_start, orf10_end),
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  scale_y_continuous(
+    labels = scales::comma,
+    expand = expansion(add = 0)
+  ) +
+  theme_bw(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+
+post_kde_plot <- post_track / p_kde_post +
+  plot_layout(heights = c(1, 6))
+
+ggsave(
+  "figs/breakpoints_postORF3a_kde_track.png",
+  post_kde_plot,
+  width = 170, height = 90,
+  units = "mm", dpi = 300, bg = "white"
+)
+
+post_kde_plot
+```

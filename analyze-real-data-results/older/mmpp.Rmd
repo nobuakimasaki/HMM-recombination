@@ -1,0 +1,62 @@
+---
+title: "mmpp"
+output: html_document
+date: "2025-06-28"
+---
+
+```{r setup, include=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(lubridate)
+  library(ggrepel)
+  library(stringr)
+  library(viridis) 
+})
+
+# ─────────────────────── paths & constants ─────────────────────────────────────
+dir_data    <- "summary_files"
+file_res    <- file.path(dir_data, "combined_optimization_results_with_summary.csv")
+file_ham    <- file.path(dir_data, "hamming_distances.csv")
+file_exp    <- file.path(dir_data, "combined_expected_recombinants.csv")
+file_ons    <- "../data/ons_survey_data.tsv"
+file_alias  <- file.path(dir_data, "pango_alias_mapping.csv")
+
+GENOME_LEN  <- 29902                  # SARS-CoV-2 genome length
+CUTOFF_DATE <- ymd("2023-03-20")     # last ONS date to consider
+
+# ─────────────────────── 1) optimisation results ──────────────────────────────
+res <- read_csv(file_res, show_col_types = FALSE) %>%
+  mutate(
+    recom          = n_breakpoints > 0,
+    exp_transition = GENOME_LEN * (1 - est_s),
+    across(c(test_start, test_end), as.Date)
+  )
+
+# keep windows with exactly two parental lineages and pre-cutoff
+res_two <- res %>%
+  filter(str_count(parental_lineages, ";") == 1, test_start < CUTOFF_DATE)
+```
+
+```{r}
+mmpp_summary <- res_two %>%
+  separate(parental_lineages, c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B),
+         .keep     = "unused") %>%
+  group_by(Lineage_1, Lineage_2) %>%
+  summarise(
+    min    = min(mmpp, na.rm = TRUE),
+    q1     = quantile(mmpp, 0.25, na.rm = TRUE),
+    median = median(mmpp, na.rm = TRUE),
+    q3     = quantile(mmpp, 0.75, na.rm = TRUE),
+    max    = max(mmpp, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+mmpp_summary_filt <- mmpp_summary %>% filter(q3 < 0.7)
+```
+

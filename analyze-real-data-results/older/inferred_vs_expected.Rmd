@@ -1,0 +1,174 @@
+---
+title: "inferred_vs_expected"
+output: html_document
+date: "2025-06-22"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(plotly)
+
+# get inferred sequences
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+# breakpoint label
+res$recomb <- ifelse(res$n_breakpoints > 0, 1, 0)
+# calculate expected number of transitions based on estimated parameter
+res$exp_transition <- 29902*(1-res$est_s)
+
+# load hamming
+hamming <- read.csv("summary_files/hamming_distances.csv")
+```
+
+```{r}
+# First clean res file
+# filter results to exactly two parental lineages, also filter to when ONS survey results are available
+res_two_lineages <- res %>%
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  filter(test_start < as.Date("2023-03-20"))
+# count parental lineage pairs
+res_two_lineages_summary <- res_two_lineages %>% group_by(parental_lineages) %>% summarise(n = n())
+# split to parent 1 and 2
+res_two_lineages_summary <- res_two_lineages_summary %>%
+  separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";")
+#write.csv(res_two_lineages_summary, "res_two_lineages.csv")
+
+# Canonicalize ordering
+res_two_lineages_summary <- res_two_lineages_summary %>%
+  mutate(
+    Lineage_1 = pmin(Lineage_A, Lineage_B),
+    Lineage_2 = pmax(Lineage_A, Lineage_B)) %>% select(-Lineage_A, -Lineage_B)
+```
+
+```{r}
+# this part generates the sample size file
+# within each test window, get the number of inferred recombinants
+res_by_window <- res %>% group_by(test_start, test_end) %>% summarize(n_recomb = sum(recomb), n_samples = n())
+
+# save this for later (just contains number of samples)
+n_samples <- res_by_window %>% select(test_start, test_end, n_samples)
+n_samples$test_start <- as.Date(n_samples$test_start)
+n_samples$test_end <- as.Date(n_samples$test_end)
+```
+
+```{r}
+# get ons survey data
+ons_data <- read.delim("../data/ons_survey_data.tsv", sep = "\t", header = FALSE)
+ons_data$date <- as.Date(ons_data$V1, format = "%d %B %Y")  # Replace 'date' with the actual column name
+ons_data$prevalence <- ons_data$V2/100
+
+n_samples <- n_samples %>%
+  mutate(
+    mean_prevalence = map2_dbl(test_start, test_end, ~ {
+      mean(ons_data$prevalence[ons_data$date >= .x & ons_data$date <= .y], na.rm = TRUE)
+    })
+  )
+```
+
+```{r}
+# get expected frequency of recombinants
+exp_freq <- read.csv("summary_files/combined_expected_recombinants.csv")
+exp_freq$test_start <- as.Date(exp_freq$test_start)
+exp_freq$test_end <- as.Date(exp_freq$test_end)
+
+# Canonicalize ordering
+exp_freq <- exp_freq %>%
+  mutate(
+    Lineage_1 = pmin(Lineage_A, Lineage_B),
+    Lineage_2 = pmax(Lineage_A, Lineage_B)) %>% select(-Lineage_A, -Lineage_B)
+
+# add the prevalence and sample size in each window to the expected frequencies
+exp_freq_with_sample_size <- exp_freq %>% left_join(n_samples %>% select(test_start, test_end, n_samples, mean_prevalence)) 
+
+# calculate expected count (k = 1, alpha = 1)
+exp_freq_with_sample_size <- exp_freq_with_sample_size %>% mutate(exp_count = Expected_Recombinant_Frequency*n_samples*mean_prevalence)  %>%
+  filter(test_start < as.Date("2023-03-20"))
+
+sum(is.na(exp_freq_with_sample_size$exp_count))
+
+exp_freq_by_lineage <- exp_freq_with_sample_size %>% group_by(Lineage_1, Lineage_2) %>% summarize(exp_count = sum(exp_count))
+
+# Now join using Lineage_1 and Lineage_2
+res_vs_expected_by_lineage <- exp_freq_by_lineage %>%
+  full_join(res_two_lineages_summary, by = c("Lineage_1", "Lineage_2")) %>%
+  mutate(across(where(is.numeric), ~ replace_na(., 0))) %>%
+  filter(Lineage_1 != "other", Lineage_2 != "other") %>%
+  left_join(hamming)
+
+# Add tooltip label
+res_vs_expected_by_lineage <- res_vs_expected_by_lineage %>%
+  mutate(label = paste0("A: ", Lineage_1, "\nB: ", Lineage_2, 
+                        "\nHamming: ", Hamming_Distance))
+
+# Plot with color by Hamming_Distance (log scale)
+p <- ggplot(res_vs_expected_by_lineage, aes(
+    x = exp_count, 
+    y = n, 
+    text = label, 
+    color = Hamming_Distance
+  )) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  scale_color_continuous(trans = "log10", name = "Hamming Distance") +
+  labs(x = "Expected Recombinants", y = "Inferred Recombinants") +
+  theme_bw()
+
+ggplotly(p, tooltip = "text")
+```
+
+```{r}
+source("plot_mosaic.R")
+
+res_two_lineages <- res_two_lineages %>% separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";")
+# Canonicalize ordering
+res_two_lineages <- res_two_lineages %>%
+  mutate(
+    Lineage_1 = pmin(Lineage_A, Lineage_B),
+    Lineage_2 = pmax(Lineage_A, Lineage_B)) %>% select(-Lineage_A, -Lineage_B)
+
+plot_mosaic(res_two_lineages, "AY.5", "B.1.617.2", sample = 70)
+get_mean_entropy(res_two_lineages, "AY.9", "B.1.617.2")
+
+plot_mosaic(res_two_lineages, "B.1.1.7", "B.1.177", sample = 50)
+```
+
+```{r}
+res_vs_expected_by_lineage <- res_vs_expected_by_lineage %>%
+  rowwise() %>%
+  mutate(entropy = get_mean_entropy(res_two_lineages, Lineage_1, Lineage_2, genome_length = 29903)) %>%
+  ungroup()
+res_vs_expected_by_lineage$mean_entropy <- ifelse(is.na(res_vs_expected_by_lineage$entropy), 0, res_vs_expected_by_lineage$entropy)
+
+# Add tooltip label
+res_vs_expected_by_lineage <- res_vs_expected_by_lineage %>%
+  mutate(label = paste0("A: ", Lineage_1,
+                        "\nB: ", Lineage_2,
+                        "\nEntropy: ", signif(entropy, 3)))
+
+# Plot with color by mean entropy (linear scale or log if needed)
+p <- ggplot(res_vs_expected_by_lineage, aes(
+    x = exp_count, 
+    y = n, 
+    text = label, 
+    color = entropy
+  )) +
+  geom_point() +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray") +
+  scale_color_viridis_c(option = "plasma", name = "Mean Entropy") +
+  labs(x = "Expected Recombinants", y = "Inferred Recombinants") +
+  theme_bw()
+
+ggplotly(p, tooltip = "text")
+```
+
+```{r}
+cor(res_vs_expected_by_lineage$exp_count, res_vs_expected_by_lineage$n, method = 'pearson')
+cor(data$x, data$y, method = 'pearson')
+# res_vs_expected_by_lineage$freq_inferred <- res_vs_expected_by_lineage$n/res_vs_expected_by_lineage$exp_count
+# 
+# ggplot(res_vs_expected_by_lineage, aes(x = Hamming_Distance, y = freq_inferred)) + geom_point() + ylim(0, 1)
+# ggplot(res_vs_expected_by_lineage, aes(x = mean_entropy, y = freq_inferred)) + geom_point() 
+```
+
+
+
+

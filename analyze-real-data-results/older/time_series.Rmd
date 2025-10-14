@@ -1,0 +1,83 @@
+---
+title: "time series"
+output: html_document
+date: "2025-06-21"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(plotly)
+
+# get inferred sequences
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+# breakpoint label
+res$recomb <- ifelse(res$n_breakpoints > 0, 1, 0)
+# calculate expected number of transitions based on estimated parameter
+res$exp_transition <- 29902*(1-res$est_s)
+
+# load hamming
+hamming <- read.csv("summary_files/hamming_distances.csv")
+```
+
+```{r}
+# within each test window, get the number of inferred recombinants
+res_by_window <- res %>% group_by(test_start, test_end) %>% summarize(n_recomb = sum(recomb), n_samples = n())
+# proportion of recombinants
+res_by_window$prop_recomb <- res_by_window$n_recomb/res_by_window$n_samples
+res_by_window$test_start <- as.Date(res_by_window$test_start)
+res_by_window$test_end <- as.Date(res_by_window$test_end)
+res_by_window$midpoint <- res_by_window$test_start + 
+                          (res_by_window$test_end - res_by_window$test_start) / 2
+
+# get ons survey data
+ons_data <- read.delim("../data/ons_survey_data.tsv", sep = "\t", header = FALSE)
+ons_data$date <- as.Date(ons_data$V1, format = "%d %B %Y")  # Replace 'date' with the actual column name
+ons_data$prevalence <- ons_data$V2/100
+
+# plot proportion of recombinants in each window against ons prevalence
+ggplot() +
+  geom_line(data = res_by_window, aes(x = midpoint, y = prop_recomb), color = "blue") +
+  geom_line(data = ons_data, aes(x = date, y = prevalence), color = "red") +  # adjust scale
+  scale_y_continuous(
+    name = "Proportion Recombinant"
+  ) +
+  labs(x = "Date") +
+  theme_bw()
+
+# save this for later (just contains number of samples)
+n_samples <- res_by_window %>% select(test_start, test_end, n_samples)
+```
+
+```{r}
+# get expected frequency of recombinants
+exp_freq <- read.csv("summary_files/combined_expected_recombinants.csv")
+exp_freq$test_start <- as.Date(exp_freq$test_start)
+exp_freq$test_end <- as.Date(exp_freq$test_end)
+# group by test window (aggregate across different parental lineage combinations)
+exp_freq_summary <- exp_freq %>% group_by(test_start, test_end) %>% summarize(exp_freq = sum(Expected_Recombinant_Frequency))
+
+# add ons mean prevalence within each test window
+exp_freq_summary <- exp_freq_summary %>%
+  mutate(
+    mean_prevalence = map2_dbl(test_start, test_end, ~ {
+      mean(ons_data$prevalence[ons_data$date >= .x & ons_data$date <= .y], na.rm = TRUE)
+    })
+  )
+exp_freq_summary$midpoint <- exp_freq_summary$test_start + (exp_freq_summary$test_end - exp_freq_summary$test_start) / 2
+# calculate expected frequency of recombinants as prevalence*sum of expected frequencies (like 2*pA*pB + 2*pB*pC + 2*pC*pA)
+exp_freq_summary$exp_recomb_freq <- exp_freq_summary$mean_prevalence*exp_freq_summary$exp_freq
+
+ggplot() +
+  geom_line(data = res_by_window, aes(x = midpoint, y = prop_recomb, color = "Inferred")) +
+  geom_line(data = exp_freq_summary, aes(x = midpoint, y = exp_recomb_freq, color = "Expected")) +
+  scale_color_manual(values = c("Inferred" = "blue", "Expected" = "red")) +
+  scale_y_continuous(name = "Proportion Recombinant") +
+  labs(x = "Date", color = "Source") +  # color = legend title
+  theme_bw()
+
+# filter columns for later
+prevalence <- exp_freq_summary %>% select(test_start, test_end, mean_prevalence)
+
+exp_freq_summary <- exp_freq_summary %>% left_join(n_samples)
+```
+

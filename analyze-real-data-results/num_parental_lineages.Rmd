@@ -1,0 +1,123 @@
+---
+
+title: "Recombinant time‑series (counts)"
+output: html\_document
+date: "2025‑06‑25"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+# ────────────────────────────────── libraries ─────────────────────────────────
+library(tidyverse)      # ggplot2, dplyr, purrr, forcats …
+library(ggstream)       # area / stream plots
+library(RColorBrewer)   # palettes
+library(scales)         # comma(), percent_format(), …
+library(patchwork)      # plot composition
+library(forcats)        # factor helpers
+library(grid)           # textGrob for shared y‑axis label
+library(Polychrome)
+```
+
+## 1  Load & prepare data
+
+```{r data-import}
+# ── Inferred recombinants ─────────────────────────────────────────────────────
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+# Group by parental lineage counts
+res_parental_count <- res %>% 
+  mutate(n_parental = str_count(parental_lineages, ";") + 1) %>%  
+  filter(n_parental > 1) %>%
+  mutate(
+    test_start = as.Date(test_start),
+    test_end   = as.Date(test_end),
+    date       = test_start + (test_end - test_start) / 2,
+  ) %>%
+  group_by(test_start, test_end, date, n_parental) %>%
+  summarise(n_inferred = n(), .groups = "drop")
+```
+
+```{r}
+res$recomb <- ifelse(res$n_unique_lineages > 1, 1, 0)
+sum(res$recomb)/nrow(res)
+
+res_period <- res %>%
+  mutate(
+    test_start = as.Date(test_start),
+    test_end   = as.Date(test_end),
+    date       = test_start + (test_end - test_start) / 2) %>%
+  group_by(date) %>%
+  summarize(freq = sum(recomb)/n())
+
+p1 <- ggplot(res_period, aes(date, freq)) + geom_line() + theme_bw() + labs(x = "Date", y = "Predicted recombinant frequency")
+
+ggsave(
+  filename = "figs/recombinant_freq.png",
+  plot     = p1,
+  device   = "png",
+  width    = 6,
+  height   = 4,
+  units    = "in",
+  dpi      = 300
+)
+```
+
+```{r}
+library(Polychrome)              # for Kelly if you want it
+k <- length(unique(res_parental_count$n_parental))
+my_cols <- kelly.colors(22)[seq_len(k)]   # first k Kelly colours
+cols_named <- setNames(my_cols, levels(res_parental_count$n_parental))
+
+# ── 2.  Stream plot of counts ────────────────────────────────────────────────
+p_parental_area <- ggplot(
+  res_parental_count,
+  aes(date, n_inferred,
+      fill = factor(n_parental, levels = sort(unique(n_parental))))
+) +
+  geom_area(linewidth = 0.2, colour = NA) +
+  scale_fill_brewer(palette = "Set2",
+                    name    = "Distinct parents") +
+  scale_y_continuous(
+    labels  = comma,
+    expand  = expansion(mult = c(0.00, 0.05))
+  ) +
+  labs(
+    x = NULL,
+    y = "Count"
+  ) +
+  theme_bw() +
+  theme(
+  legend.position  = "bottom",
+  legend.direction = "horizontal",
+  legend.justification = "center") +
+  guides(fill = guide_legend(
+  keywidth  = unit(0.45, "cm"),
+  keyheight = unit(0.45, "cm")
+))
+
+p_parental_area        
+
+# ── Choose an output file name ────────────────────────────────────────────────
+file_png <- "figs/fig_parental_lineages_area.png"   # editable
+
+# ── Dimensions ────────────────────────────────────────────────────────────────
+# 170 mm ≈ full-column width in most two-column layouts
+# 85 mm  ≈ single-column width
+# Height: 90 mm keeps a pleasing 16:9-ish aspect ratio but stays <100 mm
+# (many journals set 180 × 230 mm max for full-page figures)
+
+width_mm  <- 170      # use 85 for single-column
+height_mm <- 90
+
+# ── High-resolution raster (for reviewer PPTs, web, etc.) ─────────────────────
+ggsave(
+  filename = file_png,
+  plot     = p_parental_area,
+  width    = width_mm,
+  height   = height_mm,
+  units    = "mm",
+  dpi      = 300,              # ≥300 dpi is the usual spec
+  bg       = "white"
+)
+```

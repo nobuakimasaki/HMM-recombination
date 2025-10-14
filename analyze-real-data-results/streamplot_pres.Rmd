@@ -1,0 +1,275 @@
+---
+title: "streamplot_presentation"
+output: html_document
+date: "2025-08-08"
+---
+
+```{r}
+library(tidyverse)
+library(ggstream)
+library(ggpattern)
+library(viridis)
+library(Polychrome)
+library(colorspace)
+library(tidyr)
+library(patchwork)
+
+# ── Presentation theme knobs ────────────────────────────────────────────
+base_font  <- 22           # try 20–24 for slides/rooms
+small_font <- base_font-2
+
+theme_set(theme_bw(base_size = base_font))
+theme_update(
+  legend.title = element_text(size = base_font),
+  legend.text  = element_text(size = small_font),
+  strip.text   = element_text(size = base_font),
+  axis.title   = element_text(size = base_font),
+  axis.text    = element_text(size = small_font)
+)
+```
+
+```{r}
+library(tidyverse)
+library(ggstream)
+library(ggpattern)
+library(viridis)
+library(Polychrome)
+library(colorspace)
+library(tidyr)
+library(patchwork)
+
+# ── Presentation theme knobs ────────────────────────────────────────────
+base_font  <- 22           # try 20–24 for slides/rooms
+small_font <- base_font-2
+
+theme_set(theme_bw(base_size = base_font))
+theme_update(
+  legend.title = element_text(size = base_font),
+  legend.text  = element_text(size = small_font),
+  strip.text   = element_text(size = base_font),
+  axis.title   = element_text(size = base_font),
+  axis.text    = element_text(size = small_font)
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 1) Pair-level data (unchanged logic)
+# ──────────────────────────────────────────────────────────────────────────────
+pairs_daily <- read_csv("summary_files/combined_optimization_results_with_summary.csv",
+                        show_col_types = FALSE) %>%
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  separate(parental_lineages, into = c("A_raw", "B_raw"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(A_raw, B_raw),
+         Lineage_2 = pmax(A_raw, B_raw),
+         test_start = as.Date(test_start),
+         test_end   = as.Date(test_end),
+         date_mid   = test_start + (test_end - test_start) / 2,
+         pair_lbl   = str_c(Lineage_1, Lineage_2, sep = " + ")) %>%
+  group_by(date_mid, pair_lbl, Lineage_1, Lineage_2) %>%
+  summarise(n_inferred = n(), .groups = "drop")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 2) Lineage-level data & “top-N” palette
+# ──────────────────────────────────────────────────────────────────────────────
+df_marginal_dates <- read_csv("summary_files/combined_expected_recombinants.csv",
+                              show_col_types = FALSE)
+
+df_marginal_dates <- bind_rows(
+    select(df_marginal_dates, test_start, test_end, lineage = Lineage_A, p = pA),
+    select(df_marginal_dates, test_start, test_end, lineage = Lineage_B, p = pB)
+  ) %>%
+  distinct(test_start, test_end, lineage, .keep_all = TRUE) %>%
+  mutate(test_start    = as.Date(test_start),
+         test_end      = as.Date(test_end),
+         date_mid      = test_start + (test_end - test_start) / 2,
+         marginal_freq = p) %>%
+  select(test_start, test_end, date_mid, lineage, marginal_freq)
+
+df_marginal_rates <- df_marginal_dates %>%
+  group_by(lineage) %>%
+  summarise(sum_freq = sum(marginal_freq), .groups = "drop") %>%
+  mutate(freq = sum_freq / sum(sum_freq)) %>%
+  arrange(desc(freq))
+
+# keep the most common lineages (excluding "other")
+n_keep          <- 18
+single_lineages <- df_marginal_rates %>%
+  filter(lineage != "other") %>%
+  slice_head(n = n_keep) %>%
+  pull(lineage)
+
+# Kelly palette for single lineages
+single_palette <- setNames(kelly.colors(length(single_lineages)),
+                           single_lineages)
+
+# prepend neutral grey for aggregated "Other"
+single_palette <- c(Other = "grey80", single_palette)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 3) Lineage-level stream (proportion)
+# ──────────────────────────────────────────────────────────────────────────────
+df_plot <- df_marginal_dates %>% 
+  group_by(date_mid, lineage) %>%   
+  summarise(marginal_freq = sum(marginal_freq), .groups = "drop") %>% 
+  mutate(lineage_plot = if_else(lineage %in% single_lineages, lineage, "Other")) %>%
+  group_by(lineage_plot, date_mid) %>%
+  summarise(marginal_freq = sum(marginal_freq), .groups = "drop") %>%
+  mutate(lineage_plot = factor(lineage_plot, levels = c("Other", single_lineages))) %>%
+  complete(date_mid = seq(min(date_mid), max(date_mid), by = "week"),
+           lineage_plot,
+           fill = list(marginal_freq = 0))
+
+fill_cols <- c(Other = "grey80", single_palette)
+
+p_prop <- ggplot(df_plot,
+                 aes(x = date_mid, y = marginal_freq, fill = lineage_plot)) +
+  geom_stream(type = "prop", bw = 0.3, extra_span = 0.05) +
+  scale_fill_manual(values = fill_cols,
+                    name   = "Lineage",
+                    guide  = guide_legend(override.aes = list(colour = NA))) +
+  labs(x = NULL, y = "Prop.") +
+  theme(
+    legend.position = "bottom"
+  )
+
+p_prop
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 4) Top pair labels & colours
+# ──────────────────────────────────────────────────────────────────────────────
+single_lineages <- sort(single_lineages)  # ensure alphabetical
+top_pairs <- combn(single_lineages, 2, function(x) paste(x, collapse = " + "))
+
+pair_levels <- c("Other", top_pairs)
+
+# a long palette: neutral + rainbow for all pairs
+pair_palette <- setNames(
+  c("grey85", grDevices::rainbow(length(top_pairs))),
+  pair_levels
+)
+
+# map hex colour back to pair label (for ggplot_build() output)
+hex_to_pair <- setNames(names(pair_palette), pair_palette)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 5) Pair-level streams (counts & proportions), then “striped” polygons
+# ──────────────────────────────────────────────────────────────────────────────
+stream <- pairs_daily %>%
+  mutate(fill_cat = if_else(pair_lbl %in% top_pairs, pair_lbl, "Other")) %>%
+  group_by(date_mid, fill_cat) %>%
+  summarise(n_inferred = sum(n_inferred), .groups = "drop") %>%
+  mutate(fill_cat = factor(fill_cat, levels = c("Other", top_pairs)))
+
+# Base streams (to extract the polygons)
+p_cnt_raw <- ggplot(stream, aes(x = date_mid, y = n_inferred, fill = fill_cat)) +
+  geom_stream(type = "ridge", bw = 0.3, extra_span = 0.05) +
+  labs(x = NULL, y = "Count") +
+  scale_fill_manual(values = pair_palette,
+                    name   = "Lineage",
+                    guide  = guide_legend(override.aes = list(colour = NA)))
+
+p_prop_raw <- ggplot(stream, aes(x = date_mid, y = n_inferred, fill = fill_cat)) +
+  geom_stream(type = "prop", bw = 0.3, extra_span = 0.05) +
+  labs(x = NULL, y = "Prop.") +
+  scale_fill_manual(values = pair_palette,
+                    name   = "Lineage",
+                    guide  = guide_legend(override.aes = list(colour = NA)))
+
+poly_df_cnt  <- ggplot_build(p_cnt_raw)$data[[1]]
+poly_df_prop <- ggplot_build(p_prop_raw)$data[[1]]
+
+poly_df_cnt <- poly_df_cnt %>%
+  mutate(
+    pair_lbl = factor(hex_to_pair[fill], levels = names(pair_palette)),
+    L1       = str_trim(str_extract(pair_lbl, "^[^+]+")),
+    L2       = str_trim(str_extract(pair_lbl, "[^+]+$")),
+    pattern_fill   = single_palette[L1],
+    pattern_colour = single_palette[L2]
+  ) %>%
+  tidyr::replace_na(list(pattern_fill  = "grey85",
+                         pattern_colour = "grey85"))
+
+poly_df_prop <- poly_df_prop %>%
+  mutate(
+    pair_lbl = factor(hex_to_pair[fill], levels = names(pair_palette)),
+    L1       = str_trim(str_extract(pair_lbl, "^[^+]+")),
+    L2       = str_trim(str_extract(pair_lbl, "[^+]+$")),
+    pattern_fill   = single_palette[L1],
+    pattern_colour = single_palette[L2]
+  ) %>%
+  tidyr::replace_na(list(pattern_fill  = "grey85",
+                         pattern_colour = "grey85"))
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 6) Striped versions with bigger fonts (inherit from global theme)
+# ──────────────────────────────────────────────────────────────────────────────
+p_cnt_striped <- ggplot(poly_df_cnt,
+       aes(x, y, group = group,
+           fill          = pattern_fill,
+           pattern_fill  = pattern_colour,
+           pattern_color = NA)) +
+  geom_polygon_pattern(
+    pattern                  = "stripe",
+    pattern_angle            = 0,
+    pattern_spacing          = 0.02,
+    pattern_density          = 0.5,
+    pattern_key_scale_factor = 0.9,
+    size                     = 0.25, colour = NA
+  ) +
+  scale_fill_identity() +
+  scale_pattern_fill_identity() +
+  scale_pattern_colour_identity() +
+  labs(y = "Count", x = NULL) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x     = element_blank(),
+    axis.ticks.x    = element_blank()
+  )
+
+p_prop_striped <- ggplot(poly_df_prop,
+       aes(x, y, group = group,
+           fill          = pattern_fill,
+           pattern_fill  = pattern_colour,
+           pattern_color = NA)) +
+  geom_polygon_pattern(
+    pattern                  = "stripe",
+    pattern_angle            = 0,
+    pattern_spacing          = 0.02,
+    pattern_density          = 0.5,
+    pattern_key_scale_factor = 0.9,
+    size                     = 0.25, colour = NA
+  ) +
+  scale_fill_identity() +
+  scale_pattern_fill_identity() +
+  scale_pattern_colour_identity() +
+  labs(y = "Prop.", x = NULL) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x     = element_blank(),
+    axis.ticks.x    = element_blank()
+  )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 7) Compose & save presentation figure
+# ──────────────────────────────────────────────────────────────────────────────
+# Quick preview
+p_prop / p_cnt_striped
+
+# Final stacked figure with shared legend
+fig_streams <- p_cnt_striped / p_prop_striped / p_prop +
+  plot_layout(heights = c(5, 5, 5), guides = "collect") &
+  theme(legend.position = "bottom")
+
+# Ensure output directory exists
+dir.create("figs", showWarnings = FALSE, recursive = TRUE)
+
+ggsave(
+  filename = "figs/streamplot_pairs_presentation.png",
+  plot     = fig_streams,
+  width    = 13,      # a bit larger for projection
+  height   = 10,
+  dpi      = 300,
+  bg       = "white"
+)
+
+fig_streams
+```

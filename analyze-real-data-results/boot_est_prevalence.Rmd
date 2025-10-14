@@ -1,0 +1,72 @@
+---
+title: "boot_est_prevalence"
+output: html_document
+date: "2025-07-30"
+---
+
+```{r setup, include=FALSE}
+## Inputs you already defined:
+n_pred_cases <- 583      # TP among known cases  -> sensitivity numerator
+n_cases <- 1000          # known cases           -> sensitivity denominator
+n_pred_controls <- 995   # TN among known controls -> specificity numerator
+n_controls <- 1000       # known controls          -> specificity denominator
+
+n_pred <- 7619           # test positives in survey (apparent positives)
+n_samples <- 440307      # survey sample size
+
+## Rogan–Gladen point estimate (from your code)
+AP_hat <- n_pred / n_samples
+Se_hat <- n_pred_cases / n_cases
+Sp_hat <- n_pred_controls / n_controls
+num <- AP_hat + Sp_hat - 1
+den <- Se_hat + Sp_hat - 1
+pi_hat <- num / den
+pi_hat
+# ~ 0.0213 with these numbers
+
+## Parametric bootstrap CI
+set.seed(1)
+B <- 20000
+
+# Draw bootstrap counts under Binomial models with plug-in probabilities
+y_b     <- rbinom(B, n_samples, AP_hat)          # survey positives
+a_se_b  <- rbinom(B, n_cases,   Se_hat)          # validation TP
+a_sp_b  <- rbinom(B, n_controls, Sp_hat)         # validation TN
+
+# Convert to rates
+AP_b <- y_b / n_samples
+Se_b <- a_se_b / n_cases
+Sp_b <- a_sp_b / n_controls
+
+# Compute RG estimate per replicate
+den_b <- Se_b + Sp_b - 1
+valid <- den_b > 0     # exclude/flag ill-posed draws
+
+pi_b <- rep(NA_real_, B)
+pi_b[valid] <- (AP_b[valid] + Sp_b[valid] - 1) / den_b[valid]
+pi_b <- pmin(pmax(pi_b, 0), 1)   # clip to [0,1]
+
+# Summaries
+discard_rate <- mean(!valid)
+ci_perc <- quantile(pi_b[valid], c(0.025, 0.975), na.rm = TRUE)
+bias_est <- mean(pi_b[valid], na.rm = TRUE) - pi_hat
+
+list(
+  pi_hat = pi_hat,
+  ci_perc_95 = ci_perc,
+  bootstrap_bias_estimate = bias_est,
+  discarded_fraction = discard_rate
+)
+```
+
+```{r}
+# x = number of successes
+# n = total trials
+x <- 7619
+n <- 440307
+
+ci <- binom.test(x, n, conf.level = 0.95)$conf.int
+ci
+```
+
+

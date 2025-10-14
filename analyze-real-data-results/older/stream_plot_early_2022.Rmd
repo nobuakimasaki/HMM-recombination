@@ -1,0 +1,146 @@
+---
+
+title: "Overall Lineage‑Pair Stream Plot (Jan–Feb 2022)"
+output: html\_document
+date: "2025-06-25"
+---
+
+```{r setup, include=FALSE}
+# ────────────────────────────────── libraries ─────────────────────────────────
+library(ggstream)
+library(tidyverse)
+library(lubridate)
+library(RColorBrewer)
+library(purrr)
+library(glue)
+library(patchwork)
+
+# ─────────────────────────────── input / output ──────────────────────────────
+if (!dir.exists("figs")) dir.create("figs")
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+# ─────────────────────────────── preprocessing ───────────────────────────────
+res_two_lineages <- res %>%
+  mutate(recomb         = if_else(n_breakpoints > 0, 1, 0),
+         exp_transition = 29902 * (1 - est_s)) %>%
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  separate(parental_lineages, into = c("Lineage_A", "Lineage_B"), sep = ";") %>%
+  mutate(Lineage_1 = pmin(Lineage_A, Lineage_B),
+         Lineage_2 = pmax(Lineage_A, Lineage_B)) %>%
+  select(-Lineage_A, -Lineage_B) %>%
+  mutate(test_start = as.Date(test_start),
+         test_end   = as.Date(test_end)) %>%
+  group_by(test_start, test_end, Lineage_1, Lineage_2) %>%
+  summarise(n_inferred = n(), .groups = "drop") %>%
+  mutate(date         = test_start + (test_end - test_start) / 2,
+         lineage_pair = map2_chr(Lineage_1, Lineage_2, ~ paste(sort(c(.x, .y)), collapse = " + ")))
+```
+
+```{r helpers, include=FALSE}
+# palette helper --------------------------------------------------------------
+palette_auto <- function(n) colorRampPalette(brewer.pal(12, "Paired"))(n)
+
+# master plotting function ----------------------------------------------------
+make_stream_plots <- function(df,
+                             year_label   = NULL,
+                             y_count_max  = NULL,
+                             drop_yaxis   = FALSE,
+                             show_x_title = FALSE,
+                             fixed_cols   = NULL,
+                             legend_title = "Lineage combination",
+                             top_n        = 15) {
+
+  top_by_size <- df %>%
+    filter(Lineage_1 != "other", Lineage_2 != "other") %>%
+    count(lineage_pair, wt = n_inferred, name = "tot") %>%
+    slice_max(tot, n = top_n, with_ties = FALSE) %>%
+    pull(lineage_pair)
+
+  topN <- df %>%
+    filter(lineage_pair %in% top_by_size) %>%
+    group_by(lineage_pair) %>%
+    summarise(first_date = min(date), .groups = "drop") %>%
+    arrange(first_date, lineage_pair) %>%
+    pull(lineage_pair)
+
+  fill_lvls <- c("Other", topN)
+
+  df <- df %>% mutate(fill_cat = if_else(lineage_pair %in% topN, lineage_pair, "Other"))
+
+  stream <- df %>%
+    complete(date = seq(min(date), max(date), by = "week"),
+             nesting(lineage_pair, fill_cat),
+             fill = list(n_inferred = 0)) %>%
+    group_by(date, lineage_pair, fill_cat) %>%
+    summarise(n_inferred = sum(n_inferred), .groups = "drop")
+  stream$fill_cat <- factor(stream$fill_cat, levels = fill_lvls)
+
+  if (is.null(fixed_cols)) {
+    fill_cols <- setNames(palette_auto(length(fill_lvls)), fill_lvls)
+  } else {
+    fill_cols <- fixed_cols
+    missing <- setdiff(fill_lvls, names(fill_cols))
+    if (length(missing) > 0)
+      fill_cols <- c(fill_cols, setNames(palette_auto(length(missing)), missing))
+  }
+  fill_cols["Other"] <- "grey85"
+  border_cols <- setNames(rep("grey40", length(unique(stream$lineage_pair))),
+                          unique(stream$lineage_pair))
+  border_cols[topN] <- NA
+
+  base_theme <- theme_bw() + theme(axis.title.x = element_blank())
+  if (drop_yaxis)
+    base_theme <- base_theme + theme(axis.title.y = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+  date_scale <- scale_x_date(date_labels = "%b %Y")
+
+  p_prop <- ggplot(stream, aes(date, n_inferred, fill = fill_cat, colour = lineage_pair)) +
+    geom_stream(type = "proportional", size = 0.25, bw = 1) +
+    scale_fill_manual(values = fill_cols, breaks = topN) +
+    scale_colour_manual(values = border_cols, guide = "none") +
+    date_scale +
+    labs(y = "Proportion") +
+    base_theme +
+    theme(legend.position = "none")
+  if (!is.null(year_label))
+    p_prop <- p_prop + ggtitle(year_label) +
+      theme(plot.title = element_text(hjust = 0, size = 12))
+
+  p_cnt <- ggplot(stream, aes(date, n_inferred, fill = fill_cat, colour = lineage_pair)) +
+    geom_stream(type = "ridge", size = 0.25, bw = 1) +
+    scale_fill_manual(values = fill_cols,
+                      name   = legend_title,
+                      guide  = guide_legend(nrow = 3, byrow = FALSE),
+                      breaks = topN) +
+    scale_colour_manual(values = border_cols, guide = "none") +
+    date_scale +
+    labs(y = "Count") +
+    base_theme +
+    theme(legend.position = "bottom", legend.text = element_text(size = 10), legend.title = element_text(size = 10))
+  if (show_x_title)
+    p_cnt <- p_cnt + labs(x = "Date")
+  if (!is.null(y_count_max))
+    p_cnt <- p_cnt + scale_y_continuous(limits = c(0, y_count_max))
+
+  (p_prop) / (p_cnt) + plot_layout(heights = c(1, 1))
+}
+```
+
+```{r overall_stream}
+# ── restrict to Jan–Feb 2022 ────────────────────────────────────────────────
+early22_df <- res_two_lineages %>%
+  filter(date >= as.Date("2022-01-01"), date <= as.Date("2022-02-28"))
+
+overall_plot <- make_stream_plots(early22_df,
+  year_label   = "Jan–Feb 2022",
+  show_x_title = TRUE
+)
+
+ggsave("figs/lineage_pairs_JanFeb2022.png", overall_plot, width = 12, height = 8, dpi = 300)
+
+overall_plot
+```
+```{r}
+early22_df %>% group_by(date) %>% summarize(n = sum(n_inferred))
+```
+

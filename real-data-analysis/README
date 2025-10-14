@@ -1,8 +1,0 @@
-nextstrain build --cpus 60 --aws-batch --image ghcr.io/nobuakimasaki/hmm-recombination-env:15622147536 --exclude-from-upload "sim/**" --exclude-from-upload "data/**" --memory=20gib . --configfile config_small.yaml
-
-nextstrain build --aws-batch --attach f4d311eb-c6dd-47dc-be4a-33603b7f0c4e /Users/nobumasaki/Documents/GitHub/HMM-recombination-new
-
-nextstrain build --cpus 150 --aws-batch --image ghcr.io/nobuakimasaki/hmm-recombination-env:15622147536 --exclude-from-upload "sim/**" --exclude-from-upload "data/**" --memory=50gib . --configfile config.yaml
-
-nextstrain build --aws-batch --attach 4a092223-8eb5-4938-a653-0839383c00cd /Users/nobumasaki/Documents/GitHub/HMM-recombination-new
-
