@@ -1,0 +1,93 @@
+---
+title: "inferred_vs_exp_new"
+output: html_document
+date: "2025-10-17"
+---
+
+```{r setup, include=FALSE}
+# Read a Zstandard-compressed FASTA into a tibble with columns: id, fasta
+read_fasta_zst <- function(path) {
+  stopifnot(file.exists(path))
+  con <- pipe(paste("zstd -dc", shQuote(path)), open = "rb")  # requires `zstd` in PATH
+  on.exit(close(con), add = TRUE)
+
+  lines <- readLines(con)
+  hdr_idx <- which(substr(lines, 1, 1) == ">")
+  if (length(hdr_idx) == 0) return(tibble::tibble(id = character(), fasta = character()))
+
+  # add sentinel to simplify loop
+  hdr_idx <- c(hdr_idx, length(lines) + 1L)
+
+  ids <- character(length(hdr_idx) - 1L)
+  seqs <- character(length(hdr_idx) - 1L)
+
+  for (k in seq_along(ids)) {
+    i <- hdr_idx[k]
+    j <- hdr_idx[k + 1L] - 1L
+    header <- substring(lines[i], 2L)
+    id <- sub("\\s.*$", "", header)  # take up to first whitespace
+    seq <- paste0(lines[(i + 1L):j], collapse = "")
+    ids[k] <- id
+    seqs[k] <- seq
+  }
+
+  tibble::tibble(id = ids, fasta = seqs)
+}
+
+# usage
+df <- read_fasta_zst("../data/pango-consensus-sequences_genome-nuc.fasta.zst")
+```
+
+```{r}
+## Hamming distance ignoring non-ATCG positions
+hamming_atcg <- function(s1, s2) {
+  s1 <- toupper(gsub("\\s+", "", s1))
+  s2 <- toupper(gsub("\\s+", "", s2))
+  L  <- min(nchar(s1), nchar(s2))
+  if (L == 0) return(c(distance = NA_integer_, compared = 0L))
+
+  v1 <- strsplit(substr(s1, 1, L), "", fixed = TRUE)[[1]]
+  v2 <- strsplit(substr(s2, 1, L), "", fixed = TRUE)[[1]]
+
+  is_base <- function(x) x %in% c("A", "T", "C", "G")
+  mask <- is_base(v1) & is_base(v2)         # compare only canonical sites
+  if (!any(mask)) return(c(distance = NA_integer_, compared = 0L))
+
+  dist <- sum(v1[mask] != v2[mask])
+  c(distance = dist, compared = sum(mask))
+}
+
+## Convenience wrappers that use the first two columns of `df`
+lineage_col <- names(df)[1]
+seq_col     <- names(df)[2]
+
+get_seq_by_lineage <- function(df, lin) {
+  hits <- df[[seq_col]][df[[lineage_col]] == lin]
+  if (length(hits) == 0) stop(sprintf("Lineage '%s' not found.", lin))
+  hits[[1]]  # take the first match if multiple
+}
+
+pairs <- list(
+  c("BA.1",  "BA.1.1"),
+  c("BA.1",  "BA.1.17.2"),
+  c("BA.1.1", "BA.1.17.2"),
+  c("BQ.1.1", "CH.1.1"),
+  c("BA.1.1", "BA.2"),
+  c("CH.1.1", "XBB.1.5")
+)
+
+## Compute raw bp distances (and how many sites were compared)
+res <- do.call(rbind, lapply(pairs, function(p) {
+  s1 <- get_seq_by_lineage(df, p[1])
+  s2 <- get_seq_by_lineage(df, p[2])
+  m  <- hamming_atcg(s1, s2)
+  data.frame(
+    pair     = paste(p, collapse = "--"),
+    distance = unname(m["distance"]),
+    compared = unname(m["compared"]),
+    stringsAsFactors = FALSE
+  )
+}))
+
+res
+```
