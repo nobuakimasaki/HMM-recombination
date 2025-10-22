@@ -150,8 +150,21 @@ ggsave("figs/recomb_hist_with_gene_intervals.png", p, width = 8, height = 4, dpi
 ```
 
 ```{r}
+# ORF 7a and 7b are overlapping, so just merge these into one gene
+gene_bounds
+
+genic_merged <- gene_bounds %>%
+  mutate(gene = if_else(gene %in% c("ORF7a", "ORF7b"), "ORF7", gene)) %>%
+  group_by(gene) %>%
+  summarise(
+    start  = min(start),
+    end    = max(end),
+    .groups = "drop"
+  ) %>%
+  arrange(start)
+
 # enrichment analysis
-intergenic_bounds <- gene_bounds %>%
+intergenic_bounds <- genic_merged %>%
   arrange(start) %>%
   mutate(next_start = lead(start)) %>%
   filter(!is.na(next_start)) %>%
@@ -162,14 +175,13 @@ intergenic_bounds <- gene_bounds %>%
   ) %>%
   filter(start <= end)  # drop any overlapping genes (shouldn't happen here)
 
-intergenic_bounds <- intergenic_bounds[-nrow(intergenic_bounds),]
-
 # make a helper function to count overlaps
 count_in_region <- function(break_pos, start, end) {
   sum(break_pos >= start & break_pos <= end)
 }
 
-gene_counts <- gene_bounds %>%
+# count how many breakpoints in each genic region
+gene_counts <- genic_merged %>%
   rowwise() %>%
   mutate(
     length = end - start + 1,
@@ -177,6 +189,7 @@ gene_counts <- gene_bounds %>%
     region_type = "genic"
   )
 
+# count how many breakpoints in each intergenic region
 intergenic_counts <- intergenic_bounds %>%
   rowwise() %>%
   mutate(
@@ -185,6 +198,7 @@ intergenic_counts <- intergenic_bounds %>%
     region_type = "intergenic"
   )
 
+# summarize into one df
 region_counts <- bind_rows(gene_counts, intergenic_counts) %>%
   ungroup()
 
@@ -195,10 +209,15 @@ region_counts <- region_counts %>%
 
 region_counts
 ```
+
 ```{r}
+# region_counts is correct, now that we've accounted for overlap between ORF7a and 7b
+
+# Count total number of breakpoints and total length between regions
 total_breaks <- sum(region_counts$breaks)
 total_length <- sum(region_counts$length)
 
+# Count total number of breakpoints and total length between intergenic regions
 obs_intergenic_breaks <- sum(region_counts$breaks[region_counts$region_type == "intergenic"])
 obs_intergenic_length <- sum(region_counts$length[region_counts$region_type == "intergenic"])
 
@@ -208,12 +227,19 @@ exp_intergenic_breaks <- total_breaks * (obs_intergenic_length / total_length)
 binom_test <- binom.test(
   x = obs_intergenic_breaks,
   n = total_breaks,
-  p = obs_intergenic_length / total_length,
-  alternative = "greater"  # enrichment
+  p = obs_intergenic_length / total_length
 )
 binom_test
+
+# breakpoints before ORF1ab and after ORF10
+sum(break_df$break_pos < 266 | break_df$break_pos > 29674)
+
+338 + 8767
 ```
 
+```{r}
+region_counts %>% arrange(desc(b))
+```
 
 ```{r}
 # library(dplyr)
