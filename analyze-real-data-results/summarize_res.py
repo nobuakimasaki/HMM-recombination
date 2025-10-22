@@ -17,6 +17,10 @@ import zstandard as zstd
 from io import TextIOWrapper
 from itertools import combinations
 
+import sys, platform
+print(sys.version)            # full version + build
+print(platform.python_version())
+
 # ========= Configuration ==========
 data_dir = Path("../run-on-cluster-3/real-data-analysis/output/sliding_windows/inferred/")
 json_pattern = str(data_dir / "inferred_lineages_*.json.gz")
