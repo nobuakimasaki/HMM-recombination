@@ -168,6 +168,14 @@ pair_mass2 <- lineage_freq_all %>%
 pair_mass
 pair_mass2
 ```
+
+```{r}
+# test
+lineage_freq_all_other <- lineage_freq_all %>% filter(collapsed == "other")
+ggplot(lineage_freq_all_other, aes(x = test_start, y = p)) + geom_line()
+```
+
+
 ```{r}
 # test 
 # pairs_coexist <- lineage_freq_all %>%
@@ -176,7 +184,6 @@ pair_mass2
 # 
 # lapply(pairs_coexist$lineages, function(x){"AY.9" %in% x & "B.1.617.2" %in% x})
 ```
-
 
 ```{r}
 # Using lineage proportions + ONS prev estimates, we next estimate theta and phi using a linear regression.
@@ -285,6 +292,10 @@ pair_counts_during_ons <- prep %>%
   count(parent1, parent2, name = "n_sequences") %>%
   arrange(desc(n_sequences), parent1, parent2)
 
+# pair_counts_during_ons_other <- prep %>%
+#   count(parent1, parent2, name = "n_sequences") %>%
+#   arrange(desc(n_sequences), parent1, parent2)
+
 # (2) How many rows (within the date filter) have at least one 'other'
 other_counts <- prep %>%
   summarise(
@@ -299,6 +310,10 @@ sum(pair_counts_during_ons$n_sequences)
 pair_counts_w_exp <- left_join(pair_counts_during_ons, calculate_exp_agg)
 
 sum(pair_counts_w_exp$n_sequences)-sum(pair_counts_w_exp$exp)
+```
+
+```{r}
+
 ```
 
 
@@ -408,7 +423,7 @@ use_plot <- calculate_exp %>%
   filter(key %in% pairs_keys)
 
 # --- Plot trajectories of expected counts over time -------------
-p_expected <- ggplot(use_plot, aes(x = mid_date, y = exp_hat, color = pair)) +
+p_expected <- ggplot(use_plot, aes(x = mid_date, y = pipj, color = pair)) +
   geom_line(linewidth = 0.8, alpha = 0.9) +
   geom_point(size = 1.9, alpha = 0.8, stroke = 0) +
   scale_x_date(
@@ -422,7 +437,7 @@ p_expected <- ggplot(use_plot, aes(x = mid_date, y = exp_hat, color = pair)) +
   ) +
   labs(
     x = "Date",
-    y = "Expected true positives",
+    y = expression(Joint~lineage~frequencies~(p[i]~p[j])),
     color = "Parental lineage pair"
   ) +
   theme_bw(base_size = 15) +
@@ -434,154 +449,8 @@ p_expected <- ggplot(use_plot, aes(x = mid_date, y = exp_hat, color = pair)) +
 
 p_expected
 
-ggsave("figs/expected_trajectories_selected_pairs.png",
+ggsave("figs/pipj_selected_pairs.png",
        p_expected, width = 8, height = 4, dpi = 300)
-
 ```
-
-
-```{r}
-# library(ggrepel)
-# 
-# # Fit and compute residuals
-# fit <- lm(exp ~ n_sequences, data = pair_counts_w_exp)
-# res_df <- tibble(
-#   .resid     = resid(fit),
-#   .stdresid  = rstandard(fit)
-# )
-# 
-# # Bind residuals back to your data (row order preserved)
-# df_with_res <- bind_cols(pair_counts_w_exp, res_df) %>%
-#   mutate(label = paste0(parent1, " - ", parent2))
-# 
-# ## Option A: label all with large standardized residuals (|z| >= 2)
-# pairs_to_label <- df_with_res %>%
-#   filter(abs(.stdresid) >= 3)
-# 
-# p_pairs <- ggplot(pair_counts_w_exp, aes(x = n_sequences, y = exp)) + geom_point()
-# 
-# # Add labels to your plot
-# p_pairs_lab <- p_pairs +
-#   geom_text_repel(
-#     data = pairs_to_label,
-#     aes(label = label),
-#     size = 3.2,
-#     max.overlaps = Inf,
-#     box.padding = 0.25,
-#     point.padding = 0.2,
-#     min.segment.length = 0,
-#     seed = 42
-#   )
-# 
-# p_pairs_lab
-# ggsave("figs/pairs_scatter_detected_vs_expected.png",
-#        p_pairs_lab, width = 6, height = 6, dpi = 300)
-
-```
-```{r}
-# library(dplyr)
-# library(ggplot2)
-# library(scales)
-# 
-# # flag + combo label
-# plot_df <- pair_counts_w_exp %>%
-#   mutate(
-#     is_flag = n_sequences < 100 & exp > 25,
-#     combo   = paste(parent1, parent2, sep = " - ")
-#   )
-# 
-# flagged_df <- plot_df %>% filter(is_flag)
-# others_df  <- plot_df %>% filter(!is_flag)
-# 
-# # palette for flagged combos
-# flag_combos <- flagged_df$combo %>% unique()
-# pal_flagged <- scales::hue_pal()(length(flag_combos))
-# names(pal_flagged) <- flag_combos
-# 
-# # build plot
-# p_pairs_col <- ggplot() +
-#   # clearer "Other" points (slightly darker gray + higher alpha)
-#   geom_point(
-#     data = others_df,
-#     aes(x = n_sequences, y = exp),
-#     color = "grey60", alpha = 0.55, size = 1.8, stroke = 0
-#   ) +
-#   # flagged combos with distinct colors + legend
-#   geom_point(
-#     data = flagged_df,
-#     aes(x = n_sequences, y = exp, color = combo),
-#     alpha = 0.9, size = 2.1, stroke = 0
-#   ) +
-#   # least-squares fit over ALL points
-#   geom_smooth(
-#     data = plot_df,
-#     aes(x = n_sequences, y = exp),
-#     method = "lm", se = FALSE, linewidth = 0.9, color = "black"
-#   ) +
-#   scale_x_continuous(labels = label_number(accuracy = 1),
-#                      expand = expansion(mult = c(0, 0.01))) +
-#   scale_y_continuous(labels = label_number(accuracy = 1),
-#                      expand = expansion(mult = c(0, 0.01))) +
-#   scale_color_manual(values = pal_flagged, name = "Parental lineage pair") +
-#   labs(
-#     x = "Detected recombinant count (R_{i,j})",
-#     y = "Expected count (\\hat{E}[R_{i,j}])"
-#   ) +
-#   theme_bw(base_size = 16) +
-#   theme(
-#     legend.position = "right",
-#     axis.text.x = element_text(angle = 45, hjust = 1)
-#   )
-# 
-# p_pairs_col
-# ggsave("figs/pairs_scatter_detected_vs_expected.png", p_pairs_col,
-#        width = 6, height = 6, dpi = 300)
-
-```
-
-```{r}
-# pair_counts_w_exp %>% arrange(desc(exp/n_sequences))
-# nrow(res)*phi_hat
-```
-```{r}
-# cor(pair_counts_w_exp$n_sequences, pair_counts_w_exp$exp, method = "pearson")
-# cor.test(pair_counts_w_exp$n_sequences, pair_counts_w_exp$exp, method = "pearson")
-```
-
-```{r}
-# # Packages
-# library(dplyr)
-# library(forcats)
-# library(ggplot2)
-# library(ggstream)
-# library(scales)
-# 
-# pairs_to_label_pos <- pairs_to_label %>% filter(.stdresid > 3)
-# highlights <- unique(c(pairs_to_label_pos$parent1, pairs_to_label_pos$parent2))
-# lineage_freq_all$collapsed_other <- ifelse(lineage_freq_all$collapsed %in% highlights, lineage_freq_all$collapsed, "other")
-# 
-# lineage_freq_all_collapsed_other <- lineage_freq_all %>% group_by(test_start, test_end, collapsed_other) %>% summarize(count = sum(count))
-# 
-# ggplot(lineage_freq_all_collapsed_other %>% filter(test_end <= as.Date("2022-08-31"), test_end >= as.Date("2021-05-31")), aes(x = test_end, y = count, fill = collapsed_other)) +
-#   # type = "proportional" converts counts to proportions at each date
-#   geom_stream(type = "proportional") +
-#   scale_y_continuous(labels = percent_format(accuracy = 1)) +
-#   scale_x_date(date_breaks = "1 month", date_labels = "%Y-%m") +
-#   labs(
-#     x = NULL,
-#     y = "Proportion",
-#     fill = "Lineage",
-#     title = "Weekly lineage proportions",
-#     subtitle = "Through 2023-03-31"
-#   ) +
-#   theme_minimal(base_size = 12) +
-#   theme(
-#     panel.grid.minor = element_blank(),
-#     legend.position = "right"
-#   ) + theme(
-#     axis.text.x = element_text(angle = 90, vjust = 0.5, hjust = 1)
-#   )
-```
-
 
 
