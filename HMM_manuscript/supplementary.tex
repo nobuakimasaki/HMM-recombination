@@ -1,0 +1,195 @@
+\documentclass[11pt,oneside,letterpaper]{article}
+
+% ---------- Packages (mirrors main manuscript) ----------
+\usepackage{graphicx}
+\DeclareGraphicsExtensions{.pdf,.png,.jpg}
+
+\usepackage{color}
+\usepackage{parskip}
+\usepackage{float}
+\usepackage[hyphens]{url}
+\usepackage{xurl}
+\usepackage[hidelinks,breaklinks]{hyperref}
+
+\usepackage{geometry}
+\geometry{textwidth=15cm}
+\geometry{textheight=22cm}
+
+\renewcommand{\topfraction}{0.85}
+\renewcommand{\textfraction}{0.1}
+
+\usepackage[labelfont=bf,labelsep=period,font=small]{caption}
+
+% \usepackage{setspace}
+% \doublespacing
+% \captionsetup{labelfont=bf,labelsep=period,font=doublespacing}
+
+\usepackage{cite}
+% \renewcommand\citeleft{(}
+% \renewcommand\citeright{)}
+% \renewcommand\citeform[1]{\textsl{#1}}
+
+\renewcommand\refname{\large References}
+\makeatletter
+\renewcommand{\@biblabel}[1]{\quad#1.}
+\makeatother
+
+\usepackage{authblk}
+\renewcommand\Authands{ \& }
+\renewcommand\Authfont{\normalsize \bf}
+\renewcommand\Affilfont{\small \normalfont}
+\makeatletter
+\renewcommand\AB@affilsepx{, \protect\Affilfont}
+\makeatother
+
+\usepackage{amsmath}
+\DeclareMathOperator*{\argmax}{arg\,max}
+\usepackage{amssymb}
+\usepackage{booktabs}
+
+% ---------- Your notation macros (copied for consistency) ----------
+\newcommand{\virus}{\mathbf{x}}
+\newcommand{\serum}{\mathbf{y}}
+\newcommand{\viruses}{\mathbf{X}}
+\newcommand{\sera}{\mathbf{Y}}
+\newcommand{\ve}{v}
+\newcommand{\se}{s}
+\newcommand{\ves}{\mathbf{v}}
+\newcommand{\ses}{\mathbf{s}}
+\newcommand{\point}{f_{\scriptscriptstyle \vert}}
+\newcommand{\threshold}{f_{\textstyle \lrcorner}}
+\newcommand{\interval}{f_{\sqcup}}
+\newcommand{\mdssd}{\varphi}
+\newcommand{\virussd}{\sigma_x}
+\newcommand{\serumsd}{\sigma_y}
+\newcommand{\drift}{\mu}
+\newcommand{\tree}{\tau}
+\newcommand{\vn}{n}
+\newcommand{\sn}{k}
+\newcommand{\normal}{\mathcal{N}}
+\newcommand{\bwithin}{\beta_w}
+\newcommand{\bsister}{\beta_s}
+% NOTE: \bother macro in your snippet references \betZ_t (undefined). Keep or fix as needed.
+% \newcommand{\bother}{\betZ_t}
+\newcommand{\incclade}[1]{y_\mathrm{#1}}
+\newcommand{\driftclade}[1]{x_\mathrm{#1}}
+\newcommand{\States}{[M]}
+\setlength{\arraycolsep}{2pt}
+\newcommand{\smalltwomatrix}[2]{\scriptsize \Big( \begin{matrix} #1 \\ #2 \end{matrix} \Big)}
+\newcommand{\smallfourmatrix}[4]{\scriptsize \Big( \begin{matrix} #1 & #2 \\ #3 & #4 \end{matrix} \Big)}
+\newcommand{\twomatrix}[2]{\left( \begin{matrix} #1 \\ #2 \end{matrix} \right)}
+\newcommand{\fourmatrix}[4]{\left( \begin{matrix} #1 & #2 \\ #3 & #4 \end{matrix} \right)}
+
+% ---------- "S" prefix numbering ----------
+% Sections, figures, tables, and equations will be labeled S1, S2, ...
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\thesubsection}{S\arabic{section}.\arabic{subsection}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\theequation}{S\arabic{equation}}
+
+% Optional: page numbers as S-1, S-2, ...
+% \renewcommand{\thepage}{S\arabic{page}}
+
+%%% TITLE %%%
+\title{\vspace{1.0cm} \Large \bf
+Supplementary Information for\\[3pt]
+\textit{Hidden Markov Models Detect Pango Lineage Ancestry of Recombinant SARS-CoV-2 Sequences}
+}
+
+\author[1]{Nobuaki Masaki}
+\author[2]{Trevor Bedford}
+
+\affil[1]{Department of Biostatistics, University of Washington, Seattle, WA}
+\affil[2]{Vaccine and Infectious Disease Division, Fred Hutch Cancer Center, Seattle, WA}
+
+\date{} % No date
+
+\begin{document}
+\maketitle
+\vspace{-0.5em}
+
+% ---------- Optional front matter ----------
+% \tableofcontents
+% \listoffigures
+% \listoftables
+
+\section{Efficient forward algorithm}
+
+We implemented an efficient version of the forward algorithm, reducing the time complexity of the induction step from $\mathcal{O}(M^2)$ to $\mathcal{O}(M)$, where $M$ is the number of unique Pango lineages. Using the notation from the main paper, we define,
+
+\begin{align*}
+    \alpha_t(i) = P(O_{1:t}=k_{1:t}, Z_t=i|\lambda,\epsilon),
+\end{align*}
+
+which are our forward probabilities. This represents the probability of the observed nucleotide sequence up to position $t$ and the ancestral Pango lineage being lineage $i$ at position $t$. 
+
+In the induction step, we calculate the next time step for the forward probabilities. We have,
+
+\begin{align*}
+    \alpha_{t+1}(j) = \left(\sum_{i=1}^M \alpha_t(i)a_{ij}\right)b_{j,t+1}(k_{t+1}).
+\end{align*}
+
+Computing $\alpha_{t+1}(j)$ for one Pango lineage $j$ requires summing over $M$ lineages, which costs $\mathcal{O}(M)$. Thus, computing this for all Pango lineages costs $\mathcal{O}(M^2)$. 
+
+In our transition matrix, we have equal diagonal entries and equal off-diagonal entries. Recall,
+
+\begin{align*}
+a_{ij} =
+\begin{cases}
+1-\lambda, & \text{if } i = j, \\
+\frac{\lambda}{M - 1}, & \text{if } i \neq j.
+\end{cases}
+\end{align*}
+
+Furthermore, we use the scaled version of the forward probabilities, meaning that $\sum_{i=1}^M \alpha_t(i) = 1$. Thus, we can rewrite the induction step as,
+
+\begin{align*}
+    \alpha_{t+1}(j) &= \left(\left(1-\alpha_t(j)\right)\frac{\lambda}{M-1} + \alpha_{t}(j)(1-\lambda)\right)b_{j,t+1}(k_{t+1}) \\
+    &= \left(1-\lambda-\frac{\lambda}{M-1}\right)\alpha_t(j)+\frac{\lambda}{M-1} \\
+    &= \left(1-\frac{M}{M-1}\lambda\right)\alpha_t(j)+\frac{\lambda}{M-1},
+\end{align*}
+
+which is constant time. Thus, computing this for all Pango lineages now costs $\mathcal{O}(M)$. 
+
+% This Supplementary Information provides additional methods, figures, and tables supporting the main text.
+
+% \section{Supplementary Methods}
+% Numbered equations are prefixed with “S”. For example,
+% \begin{equation}
+% \label{eq:S1}
+% \mathcal{L} = \prod_{t=1}^{T} p(y_t \mid x_t)\, p(x_t \mid x_{t-1}).
+% \end{equation}
+
+% \section{Supplementary Figures}
+% \begin{figure}[H]
+%   \centering
+%   % \includegraphics[width=0.8\textwidth]{figs/supp_figure_S1.pdf}
+%   \caption{\textbf{Title for Supplementary Figure S\thefigure.} A concise caption describing the figure contents, methods, and key findings.}
+%   \label{fig:S1}
+% \end{figure}
+
+% \section{Supplementary Tables}
+% \begin{table}[H]
+%   \centering
+%   \caption{\textbf{Title for Supplementary Table S\thetable.} A brief description of the table.}
+%   \label{tab:S1}
+%   \begin{tabular}{lcc}
+%     \toprule
+%     Item & Value 1 & Value 2 \\
+%     \midrule
+%     A    & 1.23    & 4.56    \\
+%     B    & 7.89    & 0.12    \\
+%     \bottomrule
+%   \end{tabular}
+% \end{table}
+
+% \section{Supplementary References}
+% Keep the same citation style as the main text
+% If using a shared .bib file:
+% \bibliographystyle{unsrt}
+% \bibliography{references}
+% Or, if journal requires a manual list:
+
+
+\end{document}
