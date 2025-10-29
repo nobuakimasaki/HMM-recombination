@@ -131,18 +131,52 @@ p_prev <- p_prev +
   theme(axis.text.x = element_text(angle = 45, hjust = 1))
 
 p_prev
-
-ggsave("figs/line_plot.png", p_prev, width = 9, height = 6, dpi = 300)
 ```
 
 ```{r}
-# Subset points to label: ONS > 5%, complete cases
-lab_df <- subset(
-  summary_df,
-  ons_prop > 0.06 & is.finite(prop) & is.finite(ons_prop) & !is.na(date)
-)
-lab_df$label_date <- format(lab_df$date, "%Y-%m-%d")
+# Okabe–Ito palette (colorblind-safe)
+okabe4 <- c("#009E73", "#56B4E9", "#D55E00", "#CC79A7")
 
+delta <- 0   # e.g., 0.5 percentage points
+k <- 4        # "more than a few windows" = 3+
+
+# Identify qualifying runs
+runs <- summary_df %>%
+  arrange(date) %>%
+  mutate(diff = ons_prop - prop,
+         flag = diff > delta,
+         run_id = cumsum(flag != dplyr::lag(flag, default = first(flag)))) %>%
+  group_by(run_id) %>%
+  summarise(flag  = first(flag),
+            n     = dplyr::n(),
+            start = min(date),
+            end   = max(date),
+            .groups = "drop") %>%
+  filter(flag, n >= k) %>%
+  arrange(start)
+
+# Exclude some intervals
+runs <- runs %>% filter(run_id %in% c(3,9,11,15))
+
+# Assign colors (using viridis palette)
+runs$fill_color <- okabe4[seq_along(runs$run_id)]
+
+# Add background rectangles (no legend)
+p_prev_colored <- p_prev +
+  geom_rect(
+    data = runs,
+    aes(xmin = start, xmax = end, ymin = -Inf, ymax = Inf),
+    inherit.aes = FALSE,
+    fill = runs$fill_color,
+    alpha = 0.18
+  )
+
+p_prev_colored
+
+ggsave("figs/line_plot.png", p_prev_colored, width = 9, height = 6, dpi = 300)
+```
+
+```{r}
 # Pearson correlation (same as before)
 ct <- cor.test(summary_df$prop, summary_df$ons_prop, use = "complete.obs", method = "pearson")
 r_val <- unname(ct$estimate)
@@ -154,9 +188,19 @@ cap_text <- sprintf("Pearson correlation r = %.3f (p = %.3g), n = %d",
 # Common axis limit (0 to shared max)
 lim_max <- max(summary_df$prop, summary_df$ons_prop, na.rm = TRUE)
 
+if (nrow(runs) > 0) {
+  for (i in seq_len(nrow(runs))) {
+    idx <- summary_df$date >= runs$start[i] & summary_df$date <= runs$end[i]
+    summary_df$fill_color[idx] <- runs$fill_color[i]
+  }
+}
+
+summary_df$fill_color[is.na(summary_df$fill_color)] <- "grey80"
+
 # (Re)build plot if needed; assumes you already computed lim_max and p_scatter structure
 p_scatter <- ggplot(summary_df, aes(x = ons_prop, y = prop)) +
-  geom_point(alpha = 0.6, size = 1.8, stroke = 0) +
+  geom_point(aes(color = fill_color), alpha = 0.6, size = 1.8, stroke = 0) +
+  scale_color_identity(guide = "none") + 
   geom_abline(slope = 1, intercept = 0, linewidth = 0.6, color = "black") +
   scale_x_continuous(labels = label_percent(accuracy = 0.1),
                      limits = c(0, lim_max),
@@ -173,29 +217,29 @@ p_scatter <- ggplot(summary_df, aes(x = ons_prop, y = prop)) +
   theme(legend.position = "none")
 
 # Prefer ggrepel if available
-if (requireNamespace("ggrepel", quietly = TRUE)) {
-  library(ggrepel)
-  p_scatter <- p_scatter +
-    geom_text_repel(
-      data = lab_df,
-      aes(label = label_date),
-      size = 3,                      # small text
-      max.overlaps = Inf,
-      box.padding = 0.2,
-      point.padding = 0.1,
-      min.segment.length = 0
-    )
-} else {
-  # Fallback without ggrepel
-  p_scatter <- p_scatter +
-    geom_text(
-      data = lab_df,
-      aes(label = label_date),
-      size = 3,
-      nudge_x = 0.005, nudge_y = 0.005,  # small nudges so text isn't on top of the point
-      check_overlap = TRUE
-    )
-}
+# if (requireNamespace("ggrepel", quietly = TRUE)) {
+#   library(ggrepel)
+#   p_scatter <- p_scatter +
+#     geom_text_repel(
+#       data = lab_df,
+#       aes(label = label_date),
+#       size = 3,                      # small text
+#       max.overlaps = Inf,
+#       box.padding = 0.2,
+#       point.padding = 0.1,
+#       min.segment.length = 0
+#     )
+# } else {
+#   # Fallback without ggrepel
+#   p_scatter <- p_scatter +
+#     geom_text(
+#       data = lab_df,
+#       aes(label = label_date),
+#       size = 3,
+#       nudge_x = 0.005, nudge_y = 0.005,  # small nudges so text isn't on top of the point
+#       check_overlap = TRUE
+#     )
+# }
 
 p_scatter
 ggsave("figs/scatter_prop_vs_ons.png", p_scatter, width = 6, height = 6, dpi = 300)

@@ -51,6 +51,7 @@ bt <- binom.test(num, den)
 bt$estimate   # estimated proportion
 bt$conf.int   # exact 95% Clopper–Pearson CI
 ```
+
 ```{r}
 # split parents (for those with two parental lineages)
 tmp <- res_filtered %>%
@@ -70,7 +71,7 @@ pair_counts <- tmp %>%
 
 # pair_counts has the number of detected recombinants with each unique parental lineage pair
 
-# drop rows with "other", canonicalize ordering, and tally
+# with "other", canonicalize ordering, and tally
 pair_counts_w_other <- tmp %>%
   mutate(parent1 = pmin(pA, pB), parent2 = pmax(pA, pB)) %>%
   count(parent1, parent2, test_start, name = "n_sequences") %>%
@@ -78,7 +79,8 @@ pair_counts_w_other <- tmp %>%
 ```
 
 ```{r}
-### Above, we already obtained the observed counts, so from here, we calculate expected counts
+### Above, we already obtained the observed counts. However, at this stage, we haven't filtered to the ONS period, but we have excluded other.
+### From here, we first get ONS estimates averaged within each window
 
 # Get number of samples and number of detected recombinants with two parental lineages in each window
 res_pairs <- res %>%
@@ -119,7 +121,7 @@ ans2 <- windows %>%
 ### Above, we obtained window-averaged ONS estimates. Next, we need lineage proportions. 
 
 # folder containing the files (adjust as needed)
-dir_in <- "../run-on-cluster-3/real-data-analysis/output/sliding_windows/expected_recombinant_freq"
+dir_in <- "../run-on-cluster/real-data-analysis/output/sliding_windows/expected_recombinant_freq"
 
 # regex for filenames like: lineage_freq_2024-02-19_2024-02-25.csv.gz
 pat <- "^lineage_freq_(\\d{4}-\\d{2}-\\d{2})_(\\d{4}-\\d{2}-\\d{2})\\.csv\\.gz$"
@@ -145,6 +147,8 @@ lineage_freq_all <- file_df %>%
 lineage_freq_all
 
 # Here, we are obtaining sum (pipj) across all i<j, which is what we need to fit the linear regression later
+# Windows can include periods when ONS estimates are not available (will left join later)
+# Here we are intentionally including other
 pair_mass <- lineage_freq_all %>%                      
   group_by(test_start, test_end) %>%      
   summarise(
@@ -170,7 +174,7 @@ pair_mass2
 ```
 
 ```{r}
-# test
+# plot frequency of other
 lineage_freq_all_other <- lineage_freq_all %>% filter(collapsed == "other")
 ggplot(lineage_freq_all_other, aes(x = test_start, y = p)) + geom_line()
 ```
@@ -259,6 +263,9 @@ pairs_by_window <- lineage_freq_all %>%
   ) %>%
   select(test_start, test_end, i, j, pi, pj, pipj)
 
+# sanity check
+test <- pairs_by_window %>% group_by(test_start) %>% summarize(sum(pipj))
+
 # Attach theta, prev, and n
 calculate_exp <- pairs_by_window %>% left_join(window_stats %>% select(test_start, test_end, n_samples, avg_prop))
 calculate_exp$theta_hat <- theta_hat
@@ -313,9 +320,43 @@ sum(pair_counts_w_exp$n_sequences)-sum(pair_counts_w_exp$exp)
 ```
 
 ```{r}
+# install.packages("colorspace")  # if not already installed
+library(colorspace)
 
+# --- Define your key groups ---
+keys_blue  <- c("BA.1-BA.1.1", "BA.1-BA.1.17.2", "BA.1.1-BA.1.17.2", "BA.1.1-BA.2")
+keys_green <- c("BQ.1.1-CH.1.1", "CH.1.1-XBB.1.5")
+
+base_blue  <- "#56B4E9"
+base_green <- "#CC79A7"
+
+# --- High-contrast palette around a base color (no 'saturate') ---
+palette_from_base <- function(base_hex, n) {
+  anchors <- c(
+    darken(base_hex, amount = 0.4),
+    darken(base_hex, amount = 0.2),
+    base_hex,
+    lighten(base_hex, amount = 0.3)
+  )
+  grDevices::colorRampPalette(anchors, space = "Lab")(n)
+}
+
+# --- Build named palettes with stronger separation ---
+cols_blue  <- setNames(palette_from_base(base_blue,  length(keys_blue)),  keys_blue)
+cols_green <- setNames(palette_from_base(base_green, length(keys_green)), keys_green)
+
+key_color_df <- tibble(
+  key   = c(names(cols_blue), names(cols_green)),
+  fill_color = c(unname(cols_blue), unname(cols_green))
+)
+
+pair_counts_w_exp$key <- paste0(pair_counts_w_exp$parent1, "-", pair_counts_w_exp$parent2)
+
+pair_counts_w_exp <- pair_counts_w_exp %>%
+  left_join(key_color_df, by = "key")
+
+pair_counts_w_exp$fill_color <- ifelse(is.na(pair_counts_w_exp$fill_color), "grey80", pair_counts_w_exp$fill_color)
 ```
-
 
 ```{r}
 library(dplyr)
@@ -356,7 +397,8 @@ cap_text <- sprintf("Pearson correlation r = %.3f (p = %.3g), n = %d", r_val, p_
 
 #--- Plot ----------------------------------------------------------------------
 p_pairs <- ggplot(pair_counts_w_exp, aes(x = exp, y = n_sequences)) +
-  geom_point(alpha = 0.7, size = 1.9, stroke = 0) +
+  geom_point(aes(color = fill_color), alpha = 0.8, size = 1.9, stroke = 0) +
+  scale_color_identity(guide = "none") + 
   geom_abline(slope = 1) +
   # Least-squares line with 95% CI ribbon
   geom_smooth(method = "lm", se = TRUE, linewidth = 0.8) +
@@ -421,11 +463,19 @@ use_plot <- calculate_exp %>%
     mid_date = test_start + (test_end - test_start) / 2  # midpoint of window
   ) %>%
   filter(key %in% pairs_keys)
+# 
+# use_plot <- use_plot %>%
+#   left_join(key_color_df, by = "key")
+# 
+# use_plot$fill_color <- ifelse(is.na(use_plot$fill_color), "grey80", use_plot$fill_color)
+
+named_cols <- setNames(key_color_df$fill_color, key_color_df$key)
 
 # --- Plot trajectories of expected counts over time -------------
-p_expected <- ggplot(use_plot, aes(x = mid_date, y = pipj, color = pair)) +
+p_expected <- ggplot(use_plot, aes(x = mid_date, y = pipj, color = key, group = key)) +
   geom_line(linewidth = 0.8, alpha = 0.9) +
   geom_point(size = 1.9, alpha = 0.8, stroke = 0) +
+  scale_color_manual(values = named_cols, name = "Parental lineage pair") +
   scale_x_date(
     date_breaks = "2 months",
     date_labels = "%b %Y",

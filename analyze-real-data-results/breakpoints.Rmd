@@ -58,7 +58,7 @@ break_df_split <- res %>%
 
 break_df <- break_df_split %>% 
   unnest_longer(breakpoint_vec, values_to = "break_pos") %>% #create multiple rows for each breakpoint
-  mutate(break_pos = as.numeric(break_pos))
+  mutate(break_pos = as.numeric(break_pos) + 1)
 
 # Compute histogram bins and overall limits
 bin_width <- 200
@@ -230,11 +230,12 @@ binom_test <- binom.test(
 binom_test
 
 # breakpoints before ORF1ab and after ORF10
+sum(break_df$break_pos < 266 | break_df$break_pos > 29674) + sum(region_counts$breaks)
 sum(break_df$break_pos < 266 | break_df$break_pos > 29674)
 ```
 
 ```{r}
-region_counts %>% arrange(desc(b))
+#region_counts %>% arrange(desc(b))
 ```
 
 
