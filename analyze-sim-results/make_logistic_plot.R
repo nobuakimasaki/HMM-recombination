@@ -24,7 +24,7 @@ grid <- grid %>%
 
 # Plot
 p <- ggplot(df, aes(parent_dist, detected)) +
-  geom_point(alpha = 0.10, size = 1.2) +
+  geom_point(alpha = 0.10, size = 1.2, position = position_jitter(width = 0, height = 0.02)) +
   geom_ribbon(data = grid, aes(x = parent_dist, ymin = lwr, ymax = upr), inherit.aes = FALSE, alpha = 0.15) +
   geom_line(data = grid, aes(x = parent_dist, y = fit_prob), linewidth = 0.9) +
   labs(x = "Parental Hamming distance", y = "Sensitivity") +
