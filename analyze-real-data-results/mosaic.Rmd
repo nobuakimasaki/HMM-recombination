@@ -1,0 +1,313 @@
+---
+title: "time_series_simple"
+output: html_document
+date: "2025-07-13"
+---
+
+```{r}
+library(tidyverse)
+library(scales)
+library(data.table)
+
+# Global constants
+genome_end <- 29903
+
+## 1. Load and preprocess inferred recombinants
+
+# Inferred recombinants
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv") %>%
+  mutate(across(c(test_start, test_end), as.Date)) %>%
+  mutate(date = test_start + (test_end - test_start) / 2)
+
+# Add number of parental lineages
+res_w_n_parents <- res %>%
+  mutate(
+    n_parents = case_when(
+      is.na(parental_lineages) | parental_lineages == "" ~ 0L,
+      TRUE ~ stringr::str_count(parental_lineages, stringr::fixed(";")) + 1L
+    )
+  )
+
+# Filtered data: keep exactly 2 parental lineages
+res_filtered <- res_w_n_parents %>%
+  filter(n_parents == 2) %>%
+  select(-n_parents)
+
+# Split parents (for those with two parental lineages)
+tmp <- res_filtered %>%
+  tidyr::separate(
+    parental_lineages,
+    into = c("pA", "pB"),
+    sep = ";",
+    remove = FALSE
+  )
+
+# Filter to ONS period
+prep <- tmp %>%
+  mutate(
+    parent1 = pmin(pA, pB),
+    parent2 = pmax(pA, pB)
+  ) %>%
+  filter(test_end <= as.Date("2023-03-19"))
+
+# Pairs excluding 'other'
+pair_counts_during_ons <- prep %>%
+  filter(parent1 != "other", parent2 != "other")
+```
+
+```{r}
+## 2. Build mosaic segments (sorted by breakpoint structure)
+
+# Parent pairs to plot
+target_pairs <- c("BQ.1.1--CH.1.1",
+                  "BA.1.1--BA.2",
+                  "CH.1.1--XBB.1.5")
+
+# Confirm number of sequences with each target pair
+test <- pair_counts_during_ons %>%
+  mutate(
+    # order-invariant parent pair
+    parent_pair = paste(pmin(parent1, parent2),
+                        pmax(parent1, parent2),
+                        sep = "--")) %>%
+  filter(
+    parent_pair %in% c("BQ.1.1--CH.1.1",
+                       "BA.1.1--BA.2",
+                       "CH.1.1--XBB.1.5")) %>%
+      group_by(parent_pair) %>%
+      summarize(count = n())
+  
+
+pair_counts_mosaic <- pair_counts_during_ons %>%
+  mutate(
+    # order-invariant parent pair
+    parent_pair = paste(pmin(parent1, parent2),
+                        pmax(parent1, parent2),
+                        sep = "--")
+  ) %>%
+  filter(
+    parent_pair %in% c("BQ.1.1--CH.1.1",
+                       "BA.1.1--BA.2",
+                       "CH.1.1--XBB.1.5"),
+    n_breakpoints > 0
+  ) %>%
+  # breakpoints as sorted numeric vector
+  mutate(
+    bp_vec = case_when(
+      is.na(breakpoints) | breakpoints == "" ~ list(numeric(0)),
+      TRUE ~ str_split(breakpoints, ";")
+    ),
+    bp_vec = map(bp_vec, ~ sort(as.numeric(.x)))
+  ) %>%
+  # lineage path as vector, get first lineage along genome
+  mutate(
+    lin_vec   = str_split(lineage_path, ";"),
+    start_lin = map_chr(lin_vec, ~ str_trim(.x[1])),
+    # TRUE if sequence starts with lineage 1 (parent1)
+    starts_from_parent1 = (start_lin == parent1)
+  ) %>%
+  # lexicographic breakpoint key: "01000-15000-25000", etc.
+  # shorter vectors (no second breakpoint) come first for the same prefix
+  mutate(
+    bp_key = map_chr(bp_vec, ~ {
+      if (length(.x) == 0) return("")
+      paste(sprintf("%05d", .x), collapse = "-")
+    })
+  ) %>%
+  group_by(parent_pair) %>%
+  arrange(
+    desc(starts_from_parent1),  # 1) starts with lineage 1 first
+    bp_key,                     # 2) then by first, second, third bp, etc.
+    .by_group = TRUE
+  ) %>%
+  mutate(
+    seq_index = row_number()
+  ) %>%
+  ungroup()
+
+# Helper: turn breakpoints + lineage_path into segment coordinates
+make_segments <- function(sequence_id, parent_pair, seq_index,
+                          breakpoints, lineage_path,
+                          genome_end = 29903) {
+  # Lineage order along the genome
+  lin <- stringr::str_split(lineage_path, ";")[[1]] |> stringr::str_trim()
+
+  bp_string <- as.character(breakpoints)
+
+  if (is.na(bp_string) || bp_string == "") {
+    # no breakpoints: whole genome is one lineage
+    starts <- 1
+    ends   <- genome_end
+  } else {
+    bp <- stringr::str_split(bp_string, ";")[[1]] |> as.numeric()
+    bp <- sort(bp)
+
+    # segments: [1, bp1-1], [bp1, bp2-1], ..., [bpk, genome_end]
+    starts <- c(1, bp)
+    ends   <- c(bp - 1, genome_end)
+  }
+
+  tibble::tibble(
+    sequence_id     = sequence_id,
+    parent_pair     = parent_pair,
+    seq_index       = seq_index,
+    lineage_segment = lin,
+    start           = starts,
+    end             = ends
+  )
+}
+
+# Segment-level data
+segments_df <- pair_counts_mosaic %>%
+  rowwise() %>%
+  reframe(
+    make_segments(
+      sequence_id  = sequence_id,
+      parent_pair  = parent_pair,
+      seq_index    = seq_index,
+      breakpoints  = breakpoints,
+      lineage_path = lineage_path,
+      genome_end   = genome_end
+    )
+  ) %>%
+  ungroup()
+```
+
+```{r}
+## 3. Load gene annotations and build gene bounds
+
+gene_ann <- readr::read_tsv(
+  "../data/gene_annotation.gff",
+  comment = "#",
+  col_names = FALSE,
+  show_col_types = FALSE
+)
+
+colnames(gene_ann) <- c(
+  "seqid","source","feature","start",
+  "end","score","strand","phase","attributes"
+)
+
+# Extract all gene features
+gene_bounds <- gene_ann %>%
+  filter(feature == "gene") %>%
+  mutate(
+    gene = stringr::str_extract(attributes, "(?<=Name=)[^;]+"),
+    gene = if_else(
+      is.na(gene),
+      stringr::str_extract(attributes, "(?<=ID=)[^;]+"),
+      gene
+    ),
+    mid = (start + end) / 2
+  ) %>%
+  select(start, end, mid, gene) %>%
+  mutate(across(c(start, end, mid), as.numeric))
+```
+
+```{r}
+## 4. Scaled mosaic plot with gene bands and labels
+
+## 4.1 Rescale y and define band height per sequence
+
+segments_df_scaled <- segments_df %>%
+  group_by(parent_pair) %>%
+  mutate(
+    n_seq = n_distinct(seq_index),
+    # center position in [0,1] within each parent_pair
+    y = (seq_index - 0.5) / n_seq,
+    # band height: 0.8 of the available space, divided among sequences
+    h = 0.8 / n_seq,
+    ymin = y - h/2,
+    ymax = y + h/2
+  ) %>%
+  ungroup()
+
+# fix facet order and identify the last facet (bottom panel)
+parent_levels <- unique(segments_df_scaled$parent_pair)
+segments_df_scaled <- segments_df_scaled %>%
+  mutate(parent_pair = factor(parent_pair, levels = parent_levels))
+
+last_parent <- tail(levels(segments_df_scaled$parent_pair), 1)
+
+# labels only appear in bottom facet
+gene_labels_df <- gene_bounds %>%
+  mutate(parent_pair = last_parent)
+
+## 4.2 Plot -----------------------------------------------------------------
+
+p_mosaic <- ggplot(segments_df_scaled) +
+  # gene bands in the background (all facets)
+  geom_rect(
+    data = gene_bounds,
+    aes(
+      xmin = start,
+      xmax = end,
+      ymin = -Inf,
+      ymax = Inf
+    ),
+    inherit.aes = FALSE,
+    fill = "grey95",
+    alpha = 0.8,
+    colour = "grey70",
+    linewidth = 0.2
+  ) +
+  # vertical boundary lines at gene starts
+  geom_vline(
+    data = gene_bounds,
+    aes(xintercept = start),
+    linetype = "dashed",
+    linewidth = 0.3,
+    colour = "grey40"
+  ) +
+  # mosaic: each sequence is now a band, not a single line
+  geom_rect(
+    aes(
+      xmin = start,
+      xmax = end,
+      ymin = ymin,
+      ymax = ymax,
+      fill = lineage_segment
+    ),
+    colour = NA
+  ) +
+  # rotated gene labels ONLY on bottom facet
+  geom_text(
+    data = gene_labels_df,
+    aes(
+      x = mid,
+      y = -0.05,
+      label = gene
+    ),
+    inherit.aes = FALSE,
+    angle = 90,
+    hjust = 1,
+    vjust = 0.5,
+    size = 3
+  ) +
+  facet_wrap(
+    ~ parent_pair,
+    ncol = 1,
+    labeller = as_labeller(function(x) gsub("--", "-", x))  # em dash
+  ) +
+  # y from -0.15 to 1.05 in every facet, plus a bit of space for labels
+  scale_y_continuous(limits = c(-0.15, 1.05), expand = c(0, 0)) +
+  coord_cartesian(clip = "off") +
+  labs(
+    x    = "Genome position (nt)",
+    y    = "Sequence index",
+    fill = "Local Pango lineage ancestry"
+  ) +
+  theme_bw() +
+  theme(
+    panel.grid       = element_blank(),
+    strip.background = element_rect(fill = "grey90"),
+    strip.text       = element_text(face = "bold"),
+    axis.text.y      = element_blank(),
+    axis.ticks.y     = element_blank(),
+    plot.margin      = margin(t = 10, r = 10, b = 40, l = 10)
+  )
+
+p_mosaic
+
+ggsave("figs/mosaic.png", p_mosaic, height = 7, width = 10)
+```

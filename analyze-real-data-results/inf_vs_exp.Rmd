@@ -18,7 +18,7 @@ res <- read.csv("summary_files/combined_optimization_results_with_summary.csv") 
 ```
 
 ```{r}
-# add number of parental lineages
+# Add number of parental lineages
 res_w_n_parents <- res %>%
   mutate(
     n_parents = case_when(
@@ -27,16 +27,16 @@ res_w_n_parents <- res %>%
     )
   )
 
-# counts
+# Counts
 n_three_or_more <- sum(res_w_n_parents$n_parents >= 3, na.rm = TRUE)
 n_one_only      <- sum(res_w_n_parents$n_parents == 1, na.rm = TRUE)
 
-# filtered data: keep exactly 2 parental lineages
+# Filtered data: keep exactly 2 parental lineages
 res_filtered <- res_w_n_parents %>%
   filter(n_parents == 2) %>%
   select(-n_parents)
 
-# (optional) quick sanity table
+# Count number of parents
 tally_parents <- res_w_n_parents %>%
   count(n_parents, name = "n_rows") %>%
   arrange(n_parents)
@@ -62,7 +62,7 @@ n_with_other <- tmp %>%
   filter(str_to_lower(pA) == "other" | str_to_lower(pB) == "other") %>%
   nrow()
 
-# drop rows with "other", canonicalize ordering, and tally
+# drop rows with "other", make consistent ordering, and tally
 pair_counts <- tmp %>%
   filter(str_to_lower(pA) != "other", str_to_lower(pB) != "other") %>%
   mutate(parent1 = pmin(pA, pB), parent2 = pmax(pA, pB)) %>%
@@ -71,7 +71,7 @@ pair_counts <- tmp %>%
 
 # pair_counts has the number of detected recombinants with each unique parental lineage pair
 
-# with "other", canonicalize ordering, and tally
+# with "other", make consistent ordering, and tally
 pair_counts_w_other <- tmp %>%
   mutate(parent1 = pmin(pA, pB), parent2 = pmax(pA, pB)) %>%
   count(parent1, parent2, test_start, name = "n_sequences") %>%
@@ -132,9 +132,6 @@ file_df <- tibble(
     fname      = basename(path),
     test_start = as.Date(str_match(fname, pat)[, 2]),
     test_end   = as.Date(str_match(fname, pat)[, 3]))
-
-# (optional) sanity check
-stopifnot(all(!is.na(file_df$test_start)), all(!is.na(file_df$test_end)))
 
 lineage_freq_all <- file_df %>%
   select(path, test_start, test_end) %>%
@@ -293,15 +290,11 @@ prep <- tmp %>%
   ) %>%
   filter(test_end <= as.Date("2023-03-19"))
 
-# (1) Pair counts excluding 'other' (your original goal)
+# (1) Pair counts excluding 'other'
 pair_counts_during_ons <- prep %>%
   filter(parent1 != "other", parent2 != "other") %>%
   count(parent1, parent2, name = "n_sequences") %>%
   arrange(desc(n_sequences), parent1, parent2)
-
-# pair_counts_during_ons_other <- prep %>%
-#   count(parent1, parent2, name = "n_sequences") %>%
-#   arrange(desc(n_sequences), parent1, parent2)
 
 # (2) How many rows (within the date filter) have at least one 'other'
 other_counts <- prep %>%
@@ -320,7 +313,6 @@ sum(pair_counts_w_exp$n_sequences)-sum(pair_counts_w_exp$exp)
 ```
 
 ```{r}
-# install.packages("colorspace")  # if not already installed
 library(colorspace)
 
 # --- Define your key groups ---
