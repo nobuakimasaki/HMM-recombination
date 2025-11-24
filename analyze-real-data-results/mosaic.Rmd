@@ -64,18 +64,18 @@ target_pairs <- c("BQ.1.1--CH.1.1",
                   "CH.1.1--XBB.1.5")
 
 # Confirm number of sequences with each target pair
-test <- pair_counts_during_ons %>%
-  mutate(
-    # order-invariant parent pair
-    parent_pair = paste(pmin(parent1, parent2),
-                        pmax(parent1, parent2),
-                        sep = "--")) %>%
-  filter(
-    parent_pair %in% c("BQ.1.1--CH.1.1",
-                       "BA.1.1--BA.2",
-                       "CH.1.1--XBB.1.5")) %>%
-      group_by(parent_pair) %>%
-      summarize(count = n())
+# test <- pair_counts_during_ons %>%
+#   mutate(
+#     # order-invariant parent pair
+#     parent_pair = paste(pmin(parent1, parent2),
+#                         pmax(parent1, parent2),
+#                         sep = "--")) %>%
+#   filter(
+#     parent_pair %in% c("BQ.1.1--CH.1.1",
+#                        "BA.1.1--BA.2",
+#                        "CH.1.1--XBB.1.5")) %>%
+#       group_by(parent_pair) %>%
+#       summarize(count = n())
   
 
 pair_counts_mosaic <- pair_counts_during_ons %>%
@@ -131,6 +131,7 @@ make_segments <- function(sequence_id, parent_pair, seq_index,
                           genome_end = 29903) {
   # Lineage order along the genome
   lin <- stringr::str_split(lineage_path, ";")[[1]] |> stringr::str_trim()
+  # print(lin)
 
   bp_string <- as.character(breakpoints)
 
@@ -141,10 +142,13 @@ make_segments <- function(sequence_id, parent_pair, seq_index,
   } else {
     bp <- stringr::str_split(bp_string, ";")[[1]] |> as.numeric()
     bp <- sort(bp)
-
+    
+    # print(bp)
     # segments: [1, bp1-1], [bp1, bp2-1], ..., [bpk, genome_end]
     starts <- c(1, bp)
+    # print(starts)
     ends   <- c(bp - 1, genome_end)
+    # print(ends)
   }
 
   tibble::tibble(
