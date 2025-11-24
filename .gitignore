@@ -1,6 +1,6 @@
 sim/.snakemake
 .DS_Store
-run-on-cluster/real-data-analysis/output/sliding_windows/seq_pango_sorted/
+#run-on-cluster/real-data-analysis/output/sliding_windows/seq_pango_sorted/
 real-data-analysis/.snakemake
 .Rproj.user
 # run-on-cluster/real-data-analysis/output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta.zst
