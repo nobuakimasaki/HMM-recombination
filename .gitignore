@@ -1,16 +1,10 @@
-data/aligned.fasta.zst
-data/metadata.tsv.zst
-sim/output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.fasta
-sim/output/aligned.min-date.2020-09-01.max-date.2023-03-31.division.England.metadata.tsv
-sim/output/seq_pango_sorted.csv
-sim/output/simulated_sequences/recombinants.csv
-sim/output/simulated_sequences/controls.csv
 sim/.snakemake
 .DS_Store
 run-on-cluster/real-data-analysis/output/sliding_windows
 real-data-analysis/.snakemake
 .Rproj.user
-run-on-cluster/real-data-analysis/output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta.zst
-run-on-cluster/real-data-analysis/output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.zst
+# run-on-cluster/real-data-analysis/output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.fasta.zst
+# run-on-cluster/real-data-analysis/output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.zst
 **/.snakemake/**
 **/logs/**
+data/
