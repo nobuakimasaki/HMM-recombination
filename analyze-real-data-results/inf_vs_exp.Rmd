@@ -426,6 +426,87 @@ ggsave("figs/pairs_scatter_detected_vs_expected.png",
        p_pairs_lab, width = 6, height = 6, dpi = 300)
 
 ```
+
+```{r}
+# #--- For presentation  ----------------------------------------------------------------------
+# p_pairs_pres <- ggplot(pair_counts_w_exp, aes(x = exp, y = n_sequences)) +
+#   geom_point(aes(color = fill_color), alpha = 0.8, size = 1.9, stroke = 0) +
+#   scale_color_identity(guide = "none") + 
+#   geom_abline(slope = 1) +
+#   # Least-squares line with 95% CI ribbon
+#   geom_smooth(method = "lm", se = TRUE, linewidth = 0.8) +
+#   scale_x_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+#   scale_y_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+#   labs(
+#     y = "Detected recombinants",
+#     x = "Expected true positive recombinants",
+#     caption = cap_text
+#   ) +
+#   theme_bw(base_size = 17) +
+#   theme(
+#     legend.position = "none",
+#     plot.caption = element_text(hjust = 0)
+#   )
+# 
+# # Add labels for large standardized residuals (if any)
+# p_pairs_lab_pres <- p_pairs_pres +
+#   geom_text_repel(
+#     data = pairs_to_label,
+#     aes(label = label),
+#     size = 4.5,
+#     max.overlaps = Inf,
+#     box.padding = 0.25,
+#     point.padding = 0.2,
+#     min.segment.length = 0,
+#     seed = 42
+#   )
+# 
+# # Draw & save
+# p_pairs_lab_pres
+# ggsave("figs/pairs_scatter_detected_vs_expected_pres.png",
+#        p_pairs_lab_pres, width = 6, height = 6, dpi = 300)
+```
+
+```{r}
+# logged version
+
+# #--- For presentation  ----------------------------------------------------------------------
+# p_pairs_pres_log <- ggplot(pair_counts_w_exp, aes(x = log(exp), y = log(n_sequences))) +
+#   geom_point(aes(color = fill_color), alpha = 0.8, size = 1.9, stroke = 0) +
+#   scale_color_identity(guide = "none") +
+#   geom_abline(slope = 1) +
+#   # Least-squares line with 95% CI ribbon
+#   geom_smooth(method = "lm", se = TRUE, linewidth = 0.8) +
+#   scale_x_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+#   scale_y_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+#   labs(
+#     y = "Detected recombinants",
+#     x = "Expected true positive recombinants",
+#     caption = cap_text
+#   ) +
+#   theme_bw(base_size = 17) +
+#   theme(
+#     legend.position = "none",
+#     plot.caption = element_text(hjust = 0)
+#   )
+# 
+# # Add labels for large standardized residuals (if any)
+# p_pairs_pres_log <- p_pairs_pres_log +
+#   geom_text_repel(
+#     data = pairs_to_label,
+#     aes(label = label),
+#     size = 4.5,
+#     max.overlaps = Inf,
+#     box.padding = 0.25,
+#     point.padding = 0.2,
+#     min.segment.length = 0,
+#     seed = 42
+#   )
+# 
+# p_pairs_pres_log
+```
+
+
 ```{r}
 # Which points to label? (|standardized residual| >= 3)
 label2 <- df_with_res %>%
