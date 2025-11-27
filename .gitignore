@@ -7,3 +7,4 @@ real-data-analysis/.snakemake
 # run-on-cluster/real-data-analysis/output/aligned.min-date.2020-09-01.max-date.2024-03-31.division.England.metadata.tsv.zst
 **/.snakemake/**
 **/logs/**
+analyze-real-data-results/.Rhistory
