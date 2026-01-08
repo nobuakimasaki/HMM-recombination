@@ -1,0 +1,580 @@
+---
+title: "inferred_vs_exp_new"
+output: html_document
+date: "2025-10-17"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(stringr)
+library(readr)
+library(purrr)
+library(data.table)
+
+# Inferred 
+res <- read.csv("../summary_files/combined_optimization_results_with_summary.csv") %>%
+  mutate(across(c(test_start, test_end), as.Date)) %>%
+  mutate(date = test_start + (test_end - test_start) / 2)
+```
+
+```{r}
+# Add number of parental lineages
+res_w_n_parents <- res %>%
+  mutate(
+    n_parents = case_when(
+      is.na(parental_lineages) | parental_lineages == "" ~ 0L,
+      TRUE ~ str_count(parental_lineages, fixed(";")) + 1L
+    )
+  )
+
+# Counts
+n_three_or_more <- sum(res_w_n_parents$n_parents >= 3, na.rm = TRUE)
+n_one_only      <- sum(res_w_n_parents$n_parents == 1, na.rm = TRUE)
+
+# Filtered data: keep exactly 2 parental lineages
+res_filtered <- res_w_n_parents %>%
+  filter(n_parents == 2) %>%
+  select(-n_parents)
+
+# Count number of parents
+tally_parents <- res_w_n_parents %>%
+  count(n_parents, name = "n_rows") %>%
+  arrange(n_parents)
+
+# Compute numerator and denominator
+num <- nrow(res_filtered)
+den <- sum(tally_parents$n_rows[-1])
+
+# Exact (Clopper–Pearson) binomial CI
+bt <- binom.test(num, den)
+
+bt$estimate   # estimated proportion
+bt$conf.int   # exact 95% Clopper–Pearson CI
+```
+
+```{r}
+# split parents (for those with two parental lineages)
+tmp <- res_filtered %>%
+  separate(parental_lineages, into = c("pA", "pB"), sep = ";", remove = FALSE)
+
+# how many rows have "other" as a parent
+n_with_other <- tmp %>%
+  filter(str_to_lower(pA) == "other" | str_to_lower(pB) == "other") %>%
+  nrow()
+
+# drop rows with "other", make consistent ordering, and tally
+pair_counts <- tmp %>%
+  filter(str_to_lower(pA) != "other", str_to_lower(pB) != "other") %>%
+  mutate(parent1 = pmin(pA, pB), parent2 = pmax(pA, pB)) %>%
+  count(parent1, parent2, name = "n_sequences") %>%
+  arrange(desc(n_sequences), parent1, parent2)
+
+# pair_counts has the number of detected recombinants with each unique parental lineage pair
+
+# with "other", make consistent ordering, and tally
+pair_counts_w_other <- tmp %>%
+  mutate(parent1 = pmin(pA, pB), parent2 = pmax(pA, pB)) %>%
+  count(parent1, parent2, test_start, name = "n_sequences") %>%
+  arrange(test_start, parent1, parent2)
+```
+
+```{r}
+### Above, we already obtained the observed counts. However, at this stage, we haven't filtered to the ONS period, but we have excluded other.
+### From here, we first get ONS estimates averaged within each window
+
+# Get number of samples and number of detected recombinants with two parental lineages in each window
+res_pairs <- res %>%
+  add_count(date, name = "n_samples") %>%          # <- adds n_samples per date
+  filter(str_count(parental_lineages, ";") == 1) %>%
+  group_by(date, test_start, test_end, n_samples) %>%                
+  summarise(n_inferred = n(), .groups = "drop")
+
+sum(res_pairs$n_inferred)
+
+# Get test windows
+windows <- res_pairs %>% select(test_start, test_end)
+
+# Read and prepare ONS data 
+ons <- read.table("../../data/ons_survey_data.tsv")
+ons <- ons %>%
+  transmute(
+    day   = V1, month_name = V2, year = V3, percent = V4,
+    prop  = percent / 100,
+    date  = as.Date(paste(year, month_name, day, sep = "-"), format = "%Y-%B-%d")
+  )
+
+# Expand windows to daily dates, join, and summarize
+
+# The first four lines are left joining ons prevalence to expanded windows (now we have window and day as each row)
+ans2 <- windows %>%
+  mutate(date = map2(test_start, test_end, ~ seq(.x, .y, by = "day"))) %>%
+  unnest(date) %>%
+  left_join(ons, by = "date") %>%
+  group_by(test_start, test_end) %>%
+  summarise(
+    avg_prop = mean(prop, na.rm = TRUE),
+    n_days   = sum(!is.na(prop)),
+    .groups  = "drop")
+```
+
+```{r}
+### Above, we obtained window-averaged ONS estimates. Next, we need lineage proportions. 
+
+# folder containing the files (adjust as needed)
+dir_in <- "../../run-on-cluster/real-data-analysis/output/sliding_windows/expected_recombinant_freq"
+
+# regex for filenames like: lineage_freq_2024-02-19_2024-02-25.csv.gz
+pat <- "^lineage_freq_(\\d{4}-\\d{2}-\\d{2})_(\\d{4}-\\d{2}-\\d{2})\\.csv\\.gz$"
+
+file_df <- tibble(
+  path = list.files(dir_in, pattern = pat, full.names = TRUE)) %>%
+  mutate(
+    fname      = basename(path),
+    test_start = as.Date(str_match(fname, pat)[, 2]),
+    test_end   = as.Date(str_match(fname, pat)[, 3]))
+
+lineage_freq_all <- file_df %>%
+  select(path, test_start, test_end) %>%
+  pmap_dfr(function(path, test_start, test_end) {
+    read_csv(path, show_col_types = FALSE) %>%
+      mutate(test_start = test_start,
+             test_end   = test_end)})
+
+# Result: one big data frame with the original columns + test_start/test_end
+lineage_freq_all
+
+# Here, we are obtaining sum (pipj) across all i<j, which is what we need to fit the linear regression later
+# Windows can include periods when ONS estimates are not available (will left join later)
+# Here we are intentionally including other
+pair_mass <- lineage_freq_all %>%                      
+  group_by(test_start, test_end) %>%      
+  summarise(
+    s1 = sum(p, na.rm = TRUE),
+    s2 = sum(p^2, na.rm = TRUE),
+    sum_pipj = 0.5 * (s1^2 - s2),
+    .groups = "drop"
+  )
+
+# Sanity check
+pair_mass2 <- lineage_freq_all %>%
+  group_by(test_start, test_end) %>%
+  summarise(
+    sum_pipj = {
+      v <- p[!is.na(p)]
+      if (length(v) < 2) 0 else sum(combn(v, 2, FUN = prod))
+    },
+    .groups = "drop"
+  )
+
+pair_mass
+pair_mass2
+```
+
+```{r}
+# plot frequency of other
+lineage_freq_all_other <- lineage_freq_all %>% filter(collapsed == "other")
+ggplot(lineage_freq_all_other, aes(x = test_start, y = p)) + geom_line()
+```
+
+
+```{r}
+# test 
+# pairs_coexist <- lineage_freq_all %>%
+#   group_by(test_start) %>%
+#   summarise(lineages = list(unique(collapsed)), .groups = "drop") 
+# 
+# lapply(pairs_coexist$lineages, function(x){"AY.9" %in% x & "B.1.617.2" %in% x})
+```
+
+```{r}
+# Using lineage proportions + ONS prev estimates, we next estimate theta and phi using a linear regression.
+
+# To the inferred number of recombinant sequences in each window, left join sum pipj in each window and the window-averaged ons prev.
+window_stats <- res_pairs %>% left_join(pair_mass) %>% left_join(ans2)
+# window_stats$denom <- window_stats$n_samples*window_stats$avg_prop*window_stats$sum_pipj
+# window_stats$theta_first_model <- window_stats$n_inferred/window_stats$denom
+
+# x_w = prev(w) sum pi(w)pj(w)
+window_stats$x <- window_stats$avg_prop*window_stats$sum_pipj
+# y_w = R^{total}(w)/n(w)
+window_stats$y <- window_stats$n_inferred/window_stats$n_samples
+
+window_stats <- window_stats[!is.na(window_stats$x),]
+
+ggplot(window_stats, aes(x, y)) + geom_point()
+
+# linear regression to est. theta and phi
+lm <- lm(y~x, data = window_stats)
+summary_lm <- summary(lm)
+vc <- vcov(lm)
+# Point estimates
+phi_hat   <- summary_lm$coefficients[1, 1]
+beta_hat  <- summary_lm$coefficients[2, 1]
+theta_hat <- phi_hat + beta_hat
+
+# Standard errors
+se_phi   <- sqrt(vc[1, 1])
+se_theta <- sqrt(vc[1, 1] + vc[2, 2] + 2 * vc[1, 2])
+
+# Critical value (e.g., 95% CI)
+alpha <- 0.05
+z_crit <- qnorm(1 - alpha / 2)
+
+# Wald CIs
+phi_CI   <- c(phi_hat - z_crit * se_phi,   phi_hat + z_crit * se_phi)
+theta_CI <- c(theta_hat - z_crit * se_theta, theta_hat + z_crit * se_theta)
+
+phi_hat
+phi_CI
+
+theta_hat
+theta_CI
+```
+
+```{r}
+### Finally, we are ready to estimate recombinant counts
+
+lineage_freq_all
+
+# Get pipj for all i<j and all windows (using self-join with window id)
+pairs_by_window <- lineage_freq_all %>%
+  filter(test_end <= as.Date("2023-03-19")) %>%
+  transmute(test_start, test_end, lineage = collapsed, p) %>%
+  group_by(test_start, test_end) %>%
+  mutate(.row = row_number()) %>%
+  ungroup() %>%                                         # <-- important: ungroup before self-join
+  inner_join(., ., by = c("test_start", "test_end"),
+             suffix = c("_i", "_j")) %>%
+  filter(.row_i < .row_j) %>%
+  transmute(
+    test_start, test_end,
+    i_raw  = lineage_i, j_raw  = lineage_j,
+    pi_raw = p_i,       pj_raw = p_j
+  ) %>%
+  mutate(
+    i  = pmin(i_raw, j_raw),
+    j  = pmax(i_raw, j_raw),
+    pi = if_else(i_raw == i,  pi_raw, pj_raw),  # swap p’s if we swapped labels
+    pj = if_else(i_raw == i,  pj_raw, pi_raw),
+    pipj = pi * pj
+  ) %>%
+  select(test_start, test_end, i, j, pi, pj, pipj)
+
+# sanity check
+test <- pairs_by_window %>% group_by(test_start) %>% summarize(sum(pipj))
+
+# Attach theta, prev, and n
+calculate_exp <- pairs_by_window %>% left_join(window_stats %>% select(test_start, test_end, n_samples, avg_prop))
+calculate_exp$theta_hat <- theta_hat
+
+# \hat E[R] = theta*n*prev*pi*pj (in each window)
+calculate_exp$exp_hat <- calculate_exp$theta_hat * calculate_exp$n_samples * calculate_exp$avg_prop * calculate_exp$pipj
+# sum across windows
+calculate_exp_agg <- calculate_exp %>% group_by(i,j) %>% summarize(exp_hat = sum(exp_hat)) %>% arrange(desc(exp_hat))
+
+colnames(calculate_exp_agg) <- c("parent1", "parent2", "exp")
+```
+
+```{r}
+### We have both obs. and exp. counts! Now join the two!
+
+# How many sequences tested during ONS period?
+res %>% filter(test_end <= as.Date("2023-03-19")) %>% nrow()
+
+# Prep: normalize parents and apply date filter once
+# temp has only two parental lineages
+prep <- tmp %>%
+  mutate(
+    parent1 = pmin(pA, pB),
+    parent2 = pmax(pA, pB)
+  ) %>%
+  filter(test_end <= as.Date("2023-03-19"))
+
+# (1) Pair counts excluding 'other'
+pair_counts_during_ons <- prep %>%
+  filter(parent1 != "other", parent2 != "other") %>%
+  count(parent1, parent2, name = "n_sequences") %>%
+  arrange(desc(n_sequences), parent1, parent2)
+
+# (2) How many rows (within the date filter) have at least one 'other'
+other_counts <- prep %>%
+  summarise(
+    n_total_in_range   = n(),
+    n_with_other       = sum(parent1 == "other" | parent2 == "other", na.rm = TRUE),
+    n_without_other    = sum(parent1 != "other" & parent2 != "other", na.rm = TRUE)
+  )
+other_counts
+
+sum(pair_counts_during_ons$n_sequences)
+
+pair_counts_w_exp <- left_join(pair_counts_during_ons, calculate_exp_agg)
+
+sum(pair_counts_w_exp$n_sequences)-sum(pair_counts_w_exp$exp)
+```
+
+```{r}
+library(colorspace)
+
+# --- Define your key groups ---
+keys_blue  <- c("BA.1-BA.1.1", "BA.1-BA.1.17.2", "BA.1.1-BA.1.17.2", "BA.1.1-BA.2")
+keys_green <- c("BQ.1.1-CH.1.1", "CH.1.1-XBB.1.5")
+
+base_blue  <- "#56B4E9"
+base_green <- "#CC79A7"
+
+# --- High-contrast palette around a base color (no 'saturate') ---
+palette_from_base <- function(base_hex, n) {
+  anchors <- c(
+    darken(base_hex, amount = 0.4),
+    darken(base_hex, amount = 0.2),
+    base_hex,
+    lighten(base_hex, amount = 0.3)
+  )
+  grDevices::colorRampPalette(anchors, space = "Lab")(n)
+}
+
+# --- Build named palettes with stronger separation ---
+cols_blue  <- setNames(palette_from_base(base_blue,  length(keys_blue)),  keys_blue)
+cols_green <- setNames(palette_from_base(base_green, length(keys_green)), keys_green)
+
+key_color_df <- tibble(
+  key   = c(names(cols_blue), names(cols_green)),
+  fill_color = c(unname(cols_blue), unname(cols_green))
+)
+
+pair_counts_w_exp$key <- paste0(pair_counts_w_exp$parent1, "-", pair_counts_w_exp$parent2)
+
+pair_counts_w_exp <- pair_counts_w_exp %>%
+  left_join(key_color_df, by = "key")
+
+pair_counts_w_exp$fill_color <- ifelse(is.na(pair_counts_w_exp$fill_color), "grey80", pair_counts_w_exp$fill_color)
+```
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(scales)
+library(ggrepel)
+library(sandwich)
+library(lmtest)
+
+#--- Data + model --------------------------------------------------------------
+# Assumes pair_counts_w_exp has columns: n_sequences (x), exp (y),
+# and parental pair identifiers parent1, parent2
+
+# Fit OLS and get residuals
+fit <- lm(n_sequences ~ exp, data = pair_counts_w_exp)
+slope_hat   <- coef(fit)[["exp"]]     
+
+# Huber–White robust variance 
+robust_vcov <- vcovHC(fit, type = "HC3")
+
+# Robust coefficient test
+ct_robust <- coeftest(fit, vcov = robust_vcov)
+p_val_robust <- ct_robust["exp", "Pr(>|t|)"]
+
+df_with_res <- pair_counts_w_exp %>%
+  mutate(
+    .resid    = resid(fit),
+    .stdresid = rstandard(fit),
+    label     = paste0(parent1, " - ", parent2)
+  )
+
+# Which points to label? (|standardized residual| >= 3)
+pairs_to_label <- df_with_res %>%
+  arrange(desc(abs(.resid))) %>%   # sort by extremeness
+  slice_head(n = 20)           
+
+#--- Correlation test (Pearson, complete cases) --------------------------------
+# ct <- with(pair_counts_w_exp,
+#            cor.test(n_sequences, exp, use = "complete.obs", method = "pearson"))
+# 
+# r_val <- unname(ct$estimate)
+# p_val <- ct$p.value
+
+
+n_obs <- sum(complete.cases(pair_counts_w_exp[, c("n_sequences", "exp")]))
+
+cap_text <- sprintf("Slope β = %.3f (robust p = %.3g), n = %d",
+                    slope_hat, p_val_robust, n_obs)
+
+#--- Plot ----------------------------------------------------------------------
+p_pairs <- ggplot(pair_counts_w_exp, aes(x = exp, y = n_sequences)) +
+  geom_point(aes(color = fill_color), alpha = 0.8, size = 1.9, stroke = 0) +
+  scale_color_identity(guide = "none") + 
+  geom_abline(slope = 1) +
+  # Least-squares line with 95% CI ribbon
+  geom_smooth(method = "lm", se = TRUE, linewidth = 0.8) +
+  scale_x_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+  scale_y_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+  labs(
+    y = "Detected recombinants",
+    x = "Expected true positive recombinants",
+    caption = cap_text
+  ) +
+  theme_bw(base_size = 15) +
+  theme(
+    legend.position = "none",
+    plot.caption = element_text(hjust = 0)
+  )
+
+# Add labels for large standardized residuals (if any)
+p_pairs_lab <- p_pairs +
+  geom_text_repel(
+    data = pairs_to_label,
+    aes(label = label),
+    size = 3.2,
+    max.overlaps = Inf,
+    box.padding = 0.25,
+    point.padding = 0.2,
+    min.segment.length = 0,
+    seed = 42
+  )
+
+# Draw & save
+p_pairs_lab
+ggsave("../figs/pairs_scatter_detected_vs_expected.png",
+       p_pairs_lab, width = 6, height = 6, dpi = 300)
+```
+
+```{r}
+# #--- For presentation  ----------------------------------------------------------------------
+# p_pairs_pres <- ggplot(pair_counts_w_exp, aes(x = exp, y = n_sequences)) +
+#   geom_point(aes(color = fill_color), alpha = 0.8, size = 1.9, stroke = 0) +
+#   scale_color_identity(guide = "none") + 
+#   geom_abline(slope = 1) +
+#   # Least-squares line with 95% CI ribbon
+#   geom_smooth(method = "lm", se = TRUE, linewidth = 0.8) +
+#   scale_x_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+#   scale_y_continuous(labels = label_number(accuracy = 1), expand = expansion(mult = c(0.02, 0.05))) +
+#   labs(
+#     y = "Detected recombinants",
+#     x = "Expected true positive recombinants",
+#     caption = cap_text
+#   ) +
+#   theme_bw(base_size = 17) +
+#   theme(
+#     legend.position = "none",
+#     plot.caption = element_text(hjust = 0)
+#   )
+# 
+# # Add labels for large standardized residuals (if any)
+# p_pairs_lab_pres <- p_pairs_pres +
+#   geom_text_repel(
+#     data = pairs_to_label,
+#     aes(label = label),
+#     size = 4.5,
+#     max.overlaps = Inf,
+#     box.padding = 0.25,
+#     point.padding = 0.2,
+#     min.segment.length = 0,
+#     seed = 42
+#   )
+# 
+# # Draw & save
+# p_pairs_lab_pres
+# ggsave("figs/pairs_scatter_detected_vs_expected_pres.png",
+#        p_pairs_lab_pres, width = 6, height = 6, dpi = 300)
+```
+
+```{r}
+# Which points to label? (|standardized residual| >= 3)
+label2 <- df_with_res %>%
+  arrange(desc(abs(.resid))) %>%   # sort by extremeness
+  slice_head(n = 20) %>% filter(.stdresid < 0)
+```
+
+```{r}
+library(scales)
+
+# --- define pairs of interest ---
+pairs_tbl <- tibble::tibble(
+  i = c("BA.1","BA.1","BA.1.1","BQ.1.1","BA.1.1","CH.1.1"),
+  j = c("BA.1.1","BA.1.17.2","BA.1.17.2","CH.1.1","BA.2","XBB.1.5")
+)
+
+pairs_keys <- pairs_tbl %>%
+  mutate(key = paste(pmin(i, j), pmax(i, j), sep = "-")) %>%
+  distinct(key) %>%
+  pull(key)
+
+# --- normalize pairs in your data and filter ---
+use_plot <- calculate_exp %>%
+  mutate(
+    key  = paste(pmin(i, j), pmax(i, j), sep = "-"),
+    pair = key,
+    mid_date = test_start + (test_end - test_start) / 2  # midpoint of window
+  ) %>%
+  filter(key %in% pairs_keys)
+# 
+# use_plot <- use_plot %>%
+#   left_join(key_color_df, by = "key")
+# 
+# use_plot$fill_color <- ifelse(is.na(use_plot$fill_color), "grey80", use_plot$fill_color)
+
+named_cols <- setNames(key_color_df$fill_color, key_color_df$key)
+
+# --- Plot trajectories of expected counts over time -------------
+p_expected <- ggplot(use_plot, aes(x = mid_date, y = pipj, color = key, group = key)) +
+  geom_line(linewidth = 0.8, alpha = 0.9) +
+  geom_point(size = 1.9, alpha = 0.8, stroke = 0) +
+  scale_color_manual(values = named_cols, name = "Parental lineage pair") +
+  scale_x_date(
+    date_breaks = "2 months",
+    date_labels = "%b %Y",
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  scale_y_continuous(
+    labels = scales::label_scientific(digits = 2),
+    expand = expansion(mult = c(0.02, 0.05))
+  ) +
+  labs(
+    x = "Date",
+    y = expression(Joint~lineage~frequencies~(p[i]~p[j])),
+    color = "Parental lineage pair"
+  ) +
+  theme_bw(base_size = 15) +
+  theme(
+    plot.caption = element_text(hjust = 0),
+    legend.position = "right",
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+p_expected
+
+ggsave("../figs/pipj_selected_pairs.png",
+       p_expected, width = 8, height = 4, dpi = 300)
+```
+
+```{r}
+res_pairs
+
+sum_pipj_w <- pairs_by_window %>%
+  group_by(test_start) %>%
+  summarize(test_end = first(test_end), sum_pipj = sum(pipj))
+
+res_pairs_with_sum_pipj_w <- res_pairs %>% left_join(sum_pipj_w) %>% left_join(ans2)
+res_pairs_with_sum_pipj_w$theta_hat <- theta_hat
+
+res_pairs_with_sum_pipj_w$exp <- with(res_pairs_with_sum_pipj_w, theta_hat*n_samples*avg_prop*sum_pipj)
+
+ggplot(res_pairs_with_sum_pipj_w, aes(exp, n_inferred)) + geom_point() +
+  geom_smooth(method = "lm", se = FALSE, formula = y ~ x)
+
+cor(res_pairs_with_sum_pipj_w$exp, res_pairs_with_sum_pipj_w$n_inferred, use = "complete.obs")
+cor.test(res_pairs_with_sum_pipj_w$exp, res_pairs_with_sum_pipj_w$n_inferred)
+
+library(sandwich)
+library(lmtest)
+
+fit2 <- lm(n_inferred ~ exp, data = res_pairs_with_sum_pipj_w)
+
+vc_hac <- NeweyWest(fit2, lag = 4, prewhite = FALSE, adjust = TRUE)
+
+ct_hac <- coeftest(fit2, vcov = vc_hac)
+ct_hac["exp", ]
+```
+```{r}
+
+```
+

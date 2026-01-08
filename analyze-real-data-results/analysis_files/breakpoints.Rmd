@@ -1,0 +1,245 @@
+---
+title: "breakpoints"
+output: html_document
+date: "2025-10-21"
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(ggrepel)
+library(viridis)
+library(readr)
+library(patchwork)
+
+### load data
+
+gene_ann <- read_tsv(
+  "../data/gene_annotation.gff",
+  comment = "#",
+  col_names = FALSE,
+  show_col_types = FALSE
+)
+colnames(gene_ann) <- c(
+  "seqid","source","feature","start",
+  "end","score","strand","phase","attributes"
+)
+# Define genes to label in overall track
+focal_genes <- c("ORF1ab", "S", "N")
+# Extract all gene features
+gene_bounds <- gene_ann %>%
+  filter(feature == "gene") %>%
+  mutate(
+    gene = str_extract(attributes, "(?<=Name=)[^;]+"),
+    gene = if_else(is.na(gene),
+                   str_extract(attributes, "(?<=ID=)[^;]+"),
+                   gene),
+    mid = (start + end) / 2
+  ) %>%
+  select(start, end, mid, gene)
+
+res <- read.csv("summary_files/combined_optimization_results_with_summary.csv")
+
+dist_break <- res %>% group_by(n_breakpoints) %>% summarize(n = n())
+
+sum(dist_break$n[-1]*dist_break$n_breakpoints[-1])
+
+dist_break <- dist_break[-1,]
+
+dist_break$n/sum(dist_break$n)
+```
+
+```{r}
+### tidy breakpoint data
+
+break_df_split <- res %>%
+  filter(!is.na(breakpoints) & breakpoints != "") %>% #remove rows with no breakpoints
+  mutate(breakpoint_vec = str_split(breakpoints, ";")) #split multiple breakpoints
+
+break_df <- break_df_split %>% 
+  unnest_longer(breakpoint_vec, values_to = "break_pos") %>% #create multiple rows for each breakpoint
+  mutate(break_pos = as.numeric(break_pos) + 1)
+
+# Compute histogram bins and overall limits
+bin_width <- 200
+breaks_seq <- seq(0, 30000, by = bin_width)
+
+# Count breakpoints in each bin
+hist_df <- break_df %>%
+  mutate(bin = cut(break_pos, breaks = breaks_seq,
+                   include.lowest = TRUE, right = FALSE)) %>%
+  count(bin)
+
+max_count <- max(hist_df$n)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(ggfittext)
+
+# --- 1) Parse bin strings like "[1.8e+03,2e+03)" into numeric start/end ----
+num_re <- "[-+]?[0-9]*\\.?[0-9]+(?:e[+-]?[0-9]+)?"
+
+hist_parsed <- hist_df %>%
+  mutate(
+    nums = str_extract_all(as.character(bin), num_re),
+    bin_start = as.numeric(map_chr(nums, ~ .x[1])),
+    bin_end   = as.numeric(map_chr(nums, ~ .x[2]))
+  ) %>%
+  select(bin_start, bin_end, n)
+
+# --- 2) Plot: draw each bin as a rectangle spanning [start, end] with height n ---
+y_max <- max(hist_parsed$n, na.rm = TRUE)
+y_tick <- 0.06 * y_max         # tick height for the vertical bars (the "|" parts)
+y_gene <- 1.04 * y_max         # baseline for the horizontal gene line
+label_half <- 1.2 * y_tick              # label height
+y_cap      <- max(y_gene + y_tick, y_gene + label_half) + 0.01 * y_max
+
+p <- ggplot() +
+  # bins as rectangles
+  geom_rect(
+    data = hist_parsed,
+    aes(xmin = bin_start, xmax = bin_end, ymin = 0, ymax = n),
+    fill = "grey70", color = "grey30"
+  ) +
+  # --- 3) Overlay genes as |-----| with labels ---
+  # vertical ticks at gene starts
+  geom_segment(
+    data = gene_bounds,
+    aes(x = start, xend = start, y = y_gene - y_tick, yend = y_gene + y_tick),
+    linewidth = 0.4, alpha = 0.3
+  ) +
+  # vertical ticks at gene ends
+  geom_segment(
+    data = gene_bounds,
+    aes(x = end, xend = end, y = y_gene - y_tick, yend = y_gene + y_tick),
+    linewidth = 0.4, alpha = 0.3
+  ) +
+  # gene name at the mid position
+  ggfittext::geom_fit_text(
+  data = gene_bounds,
+  aes(xmin = start, xmax = end,
+      ymin = y_gene - label_half, ymax = y_gene + label_half,
+      label = gene),
+  grow    = FALSE,     # won't shrink to force fit
+  outside = FALSE,     # <-- CHANGED: keep text inside the box; not a string
+  vjust = 0.5, hjust = 0.5,
+  min.size = 1,
+  angle = 90) +
+  # --- 4) Cosmetics ---
+  scale_x_continuous(expand = expansion(mult = c(0.002, 0.002)),
+                     name = "Genome position (nt)") +
+  scale_y_continuous(
+  limits = c(0, y_cap),
+  expand = expansion(mult = c(0, 0.03)),
+  name = "Breakpoint count") +
+  coord_cartesian(clip = "off") +
+  theme_bw(base_size = 15) +
+  theme(
+    plot.margin = margin(t = 16, r = 10, b = 10, l = 10),
+    panel.grid.minor = element_blank()
+  )
+
+p
+
+ggsave("figs/recomb_hist_with_gene_intervals.png", p, width = 8, height = 4, dpi = 300)
+```
+
+```{r}
+# ORF 7a and 7b are overlapping, so just merge these into one gene
+gene_bounds
+
+genic_merged <- gene_bounds %>%
+  mutate(gene = if_else(gene %in% c("ORF7a", "ORF7b"), "ORF7", gene)) %>%
+  group_by(gene) %>%
+  summarise(
+    start  = min(start),
+    end    = max(end),
+    .groups = "drop"
+  ) %>%
+  arrange(start)
+
+# enrichment analysis
+intergenic_bounds <- genic_merged %>%
+  arrange(start) %>%
+  mutate(next_start = lead(start)) %>%
+  filter(!is.na(next_start)) %>%
+  transmute(
+    region = paste0("intergenic_", gene, "_", lead(gene)),
+    start = end + 1,
+    end = next_start - 1
+  ) %>%
+  filter(start <= end)  # drop any overlapping genes (shouldn't happen here)
+
+# make a helper function to count overlaps
+count_in_region <- function(break_pos, start, end) {
+  sum(break_pos >= start & break_pos <= end)
+}
+
+# count how many breakpoints in each genic region
+gene_counts <- genic_merged %>%
+  rowwise() %>%
+  mutate(
+    length = end - start + 1,
+    breaks = count_in_region(break_df$break_pos, start, end),
+    region_type = "genic"
+  )
+
+# count how many breakpoints in each intergenic region
+intergenic_counts <- intergenic_bounds %>%
+  rowwise() %>%
+  mutate(
+    length = end - start + 1,
+    breaks = count_in_region(break_df$break_pos, start, end),
+    region_type = "intergenic"
+  )
+
+# summarize into one df
+region_counts <- bind_rows(gene_counts, intergenic_counts) %>%
+  ungroup()
+
+region_counts
+
+region_counts <- region_counts %>%
+  mutate(break_rate = breaks / length * 1000)
+
+region_counts
+```
+
+```{r}
+# region_counts is correct, now that we've accounted for overlap between ORF7a and 7b
+
+# Count total number of breakpoints and total length between regions
+total_breaks <- sum(region_counts$breaks)
+total_length <- sum(region_counts$length)
+
+# Count total number of breakpoints and total length between intergenic regions
+obs_intergenic_breaks <- sum(region_counts$breaks[region_counts$region_type == "intergenic"])
+obs_intergenic_length <- sum(region_counts$length[region_counts$region_type == "intergenic"])
+
+exp_intergenic_breaks <- total_breaks * (obs_intergenic_length / total_length)
+
+# Use a binomial test or chi-square
+binom_test <- binom.test(
+  x = obs_intergenic_breaks,
+  n = total_breaks,
+  p = obs_intergenic_length / total_length
+)
+binom_test
+
+# breakpoints before ORF1ab and after ORF10
+sum(break_df$break_pos < 266 | break_df$break_pos > 29674) + sum(region_counts$breaks)
+sum(break_df$break_pos < 266 | break_df$break_pos > 29674)
+```
+
+```{r}
+#region_counts %>% arrange(desc(b))
+```
+
+
+
+
+
+

@@ -48,21 +48,21 @@ def hamming_distance(s1, s2):
 np.random.seed(108)
 
 # Load results
-optim_res = pd.read_csv("../sim-3/output/inferred/optimization_results.csv", compression="gzip")
-optim_res_controls = pd.read_csv("../sim-3/output/inferred/optimization_results_controls.csv", compression="gzip")
+optim_res = pd.read_csv("../sim/output/inferred/optimization_results.csv", compression="gzip")
+optim_res_controls = pd.read_csv("../sim/output/inferred/optimization_results_controls.csv", compression="gzip")
 
-with gzip.open("../sim-3/output/inferred/inferred_lineages.json", "rt") as f:   # “rt” = read-text
+with gzip.open("../sim/output/inferred/inferred_lineages.json", "rt") as f:   # “rt” = read-text
     res = json.load(f)
-with gzip.open("../sim-3/output/inferred/inferred_lineages_controls.json", "rt") as f:
+with gzip.open("../sim/output/inferred/inferred_lineages_controls.json", "rt") as f:
     res_controls = json.load(f)
 
 # Load reference set
-ref = pd.read_csv("../run-on-cluster-3/real-data-analysis/output/sliding_windows/seq_pango_sorted/seq_pango_sorted_2022-11-06_2022-12-11.csv.gz")
+ref = pd.read_csv("../run-on-cluster/real-data-analysis/output/sliding_windows/seq_pango_sorted/seq_pango_sorted_2022-11-06_2022-12-11.csv.gz")
 
 # Load sampled IDs and breakpoints
-sampled_seq = pd.read_csv("../sim-3/output/simulated_sequences/sampled_sequences.csv", header = None).values.tolist()
-sampled_seq_controls = pd.read_csv("../sim-3/output/simulated_sequences/sampled_sequences_control.csv", header = None).values.tolist()
-breakpoints = pd.read_csv("../sim-3/output/simulated_sequences/breakpoints.csv", header = None).values.tolist()
+sampled_seq = pd.read_csv("../sim/output/simulated_sequences/sampled_sequences.csv", header = None).values.tolist()
+sampled_seq_controls = pd.read_csv("../sim/output/simulated_sequences/sampled_sequences_control.csv", header = None).values.tolist()
+breakpoints = pd.read_csv("../sim/output/simulated_sequences/breakpoints.csv", header = None).values.tolist()
 # Remove 'nan' values from sublists
 breakpoints = [[int(x) for x in sublist if not (isinstance(x, float) and np.isnan(x))] for sublist in breakpoints]
 
