@@ -90,14 +90,16 @@
 
 %%% TITLE %%%
 \title{\vspace{1.0cm} \Large \bf 
-Hidden Markov Models Detect Pango Lineage Ancestry of Recombinant SARS-CoV-2 Sequences 
+Hidden Markov Models Detect Recombination and Ancestry of SARS-CoV-2
+% Hidden Markov Models Detect Pango Lineage Ancestry of Recombinant SARS-CoV-2 Sequences 
 }
 
-\author[1]{Nobuaki Masaki}
-\author[2]{Trevor Bedford}
+\author[1,2]{Nobuaki Masaki}
+\author[2,3]{Trevor Bedford}
 
 \affil[1]{Department of Biostatistics, University of Washington, Seattle, WA}
-\affil[2]{Vaccine and Infectious Disease Division, Fred Hutch Cancer Center, Seattle, WA}
+\affil[2]{Vaccine and Infectious Disease Division, Fred Hutchinson Cancer Center, Seattle, WA}
+\affil[3]{Howard Hughes Medical Institute, Seattle, WA}
 
 \date{}
 
@@ -107,40 +109,35 @@ Hidden Markov Models Detect Pango Lineage Ancestry of Recombinant SARS-CoV-2 Seq
 
 %%% ABSTRACT %%%
 \begin{abstract}
-When individuals are co-infected with two SARS-CoV-2 lineages, homologous recombination can generate mosaic genomes carrying mutations from both parental lineages. There are a variety of methods developed to detect recombinant sequences and their parental lineages in a surveillance-scale dataset comprised of millions of SARS-CoV-2 genomes. However, these methods often rely on user-defined settings, such as the probability that a recombination breakpoint occurs between adjacent positions on the query sequence. In this study, we devise a hidden Markov model that detects recombinant SARS-CoV-2 sequences and identifies their parental lineages within a test set of sequences collected over a week-long window.  Our method does not depend on user-defined parameters and can accommodate de novo mutations on the query sequence that are not present in the inferred parental lineages. To achieve this, we use maximum likelihood to estimate parameters that characterize the transition and emission probabilities in our hidden Markov model. Applying our method to 440,307 SARS-CoV-2 sequences sampled in England between September 2020 and March 2024, we detect 7,619 recombinant sequences corresponding to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of all sampled sequences. We show a positive association between the proportion of query sequences detected as recombinant in each week and community SARS-CoV-2 prevalence. This is consistent with higher prevalence increasing co-infection risk and promoting the emergence of recombinant sequences. We further observe localized clusters of recombination breakpoints within Spike and in intergenic regions.
+When individuals are co-infected with distinct SARS-CoV-2 lineages, homologous recombination can generate mosaic genomes carrying mutations from both parental lineages. A variety of methods exist to detect recombinant sequences and their parental lineages in surveillance-scale datasets comprised of millions of SARS-CoV-2 genomes. However, these methods often rely on user-defined settings, such as the probability that a recombination breakpoint occurs between adjacent positions on the query sequence. In this study, we devise a hidden Markov model that detects recombinant SARS-CoV-2 sequences and identifies their parental lineages within a test set of sequences.  Our method does not depend on user-defined parameters and can accommodate de novo mutations on the query sequence that are not present in the predicted parental lineages. To achieve this, we use maximum likelihood to estimate parameters that characterize the transition and emission probabilities in our hidden Markov model. Applying our method to 440,307 SARS-CoV-2 sequences sampled in England between September 2020 and March 2024, we detect 7,619 recombinant sequences corresponding to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of all sampled sequences. We show a positive association between the proportion of query sequences detected as recombinant in each week and community SARS-CoV-2 prevalence. This is consistent with higher prevalence increasing co-infection risk and promoting the emergence of recombinant sequences. We further observe localized clusters of recombination breakpoints within spike and in intergenic regions.
 \end{abstract}
-
-% Recombinant SARS-CoV-2 viruses can emerge when an individual is coinfected with multiple variants of the virus. However, it can be challenging to identify recombinant SARS-CoV-2 sequences and their parental lineages among thousands of samples. We developed a novel inferential framework capable of determining the parental Pango lineage at each position of a putative recombinant SARS-CoV-2 sequence, using a reference set of sequences and associated Pango lineages.
-
-%%% IMPACT %%%
-% Combined evolutionary and antigenic analysis shows that human influenza viruses differ dramatically in rates of antigenic drift and these rates significantly impact seasonal incidence patterns.
 
 \pagebreak
 
 %%% INTRODUCTION %%%
 \section{Introduction}
 
-Recombination is thought to occur in coronaviruses via a copy-choice mechanism in which the viral RNA-dependent RNA polymerase switches template strands during negative strand synthesis \cite{chrisman_indels_2021}. When hosts are co-infected by multiple SARS-CoV-2 lineages, this template switching results in recombinant genomes sharing mutations from both lineages \cite{tremeaux_sars-cov-2_2023}.
+Recombination is thought to occur in coronaviruses via a copy-choice mechanism in which the viral RNA-dependent RNA polymerase switches template strands during negative strand synthesis \cite{chrisman_indels_2021}. When hosts are co-infected by multiple SARS-CoV-2 lineages, this template switching results in recombinant genomes sharing genetic material from both lineages \cite{tremeaux_sars-cov-2_2023}.
 
-One of the most significant recombinant lineages that emerged during the pandemic is XBB. Phylogenetic analysis indicates that this lineage was derived from a recombination event between two Omicron lineages (BJ.1 and BM.1.1.1) \cite{tamura_virological_2023}. Furthermore the XBB.1 Spike, harboring substitutions derived from both BJ.1 and BM.1.1.1, was associated with a 30-fold reduction in neutralization by BA.2 breakthrough sera. The effects of individual substitutions (e.g., V83A, Y144del, Q183E, R346T, L368I, V445P, F486S, F490S) were modest, yielding 3-fold reductions in neutralization \cite{tamura_virological_2023}.
+One of the most significant recombinant lineages that emerged during the pandemic is XBB. Phylogenetic analysis indicates that this lineage was derived from a recombination event between two Omicron lineages (BJ.1 and BM.1.1.1) and resulted in significant reduction in neutralization from human serum samples \cite{tamura_virological_2023}. The effective reproduction number of XBB was estimated to be 1.23 and 1.20 times higher than its parental lineages BJ.1 and BM.1.1.1, respectively, using epidemic data from late 2022 \cite{tamura_virological_2023}. The derived lineage XBB.1.5 spread widely and reached a peak  frequency of 55\% globally in epidemiological week~12 of 2023 \cite{erkihun_current_2024}. Because recombination can combine mutations from different SARS-CoV-2 lineages that jointly confer a growth advantage, systematic surveillance and robust statistical detection of recombinant lineages are crucial.
 
-Additionally, the effective reproduction number of XBB was estimated to be 1.23 and 1.20 times higher than its parental lineages BJ.1 and BM.1.1.1, respectively, using epidemic data from late 2022 \cite{tamura_virological_2023}. XBB.1.5 reached a peak lineage frequency of 55\% globally in epidemiological week~12 of 2023 \cite{erkihun_current_2024}. In the United States, XBB.1.5 reached a peak lineage frequency of 84.1\% by April~1,~2023 \cite{ma_genomic_2023}. Because recombination can combine mutations from different SARS-CoV-2 lineages that jointly confer a growth advantage, systematic surveillance and robust statistical detection of recombinant lineages are crucial.
-
-A wide range of computational approaches have been developed to detect recombination in viruses. Broadly, similarity methods such as SimPlot visualize how a query sequence’s similarity shifts across the genome relative to putative parental lineages \cite{samson_simplot_2022, salminen_identification_1995}. RDP4 examines all triplets within a set of sequences and applies a suite of tests (e.g., GENECONV, MaxChi, Bootscan, 3SEQ) to detect recombination breakpoints and assign parental sequences \cite{martin_rdp4_2015, sawyer_statistical_1989, posada_evaluation_2001, lam_improved_2018}. However, the number of comparisons is cubic with respect to the sample size, which is infeasible for large-scale datasets.
+A wide range of computational approaches have been developed to detect recombination in viruses. Broadly, similarity methods such as SimPlot visualize how a query sequence's similarity shifts across the genome relative to putative parental lineages \cite{samson_simplot_2022, salminen_identification_1995}. RDP4 examines all triplets within a set of sequences and applies a suite of tests (e.g., GENECONV, MaxChi, Bootscan, 3SEQ) to detect recombination breakpoints and assign parental sequences \cite{martin_rdp4_2015, sawyer_statistical_1989, posada_evaluation_2001, lam_improved_2018}. However, the number of comparisons is cubic with respect to the sample size, which is infeasible for large-scale datasets.
 
 % GENECONV detects unusually long tracts of identity between sequence pairs via permutation tests. MaxChi calculates a \(\chi^2\) statistic based on discordant sites between the query sequence and two parental lineages to the left and right of each breakpoint. Bootscan builds bootstrapped phylogenetic trees in sliding windows to detect parental switches; 3SEQ tests whether a candidate sequence forms a mosaic of two others by identifying clusters of sites where it matches one parent over the other, using an exact nonparametric permutation test. 
 
-Phylogeny-based methods such as GARD detect breakpoints by fitting phylogenies to alignment segments and comparing model fit across candidate partitions \cite{kosakovsky_pond_gard_2006}. The repeated tree-fitting and model-comparison steps are computationally intensive, so GARD is generally applied to downsampled alignments instead of surveillance-scale datasets comprising millions of genomes.
+Phylogeny-based methods such as GARD detect breakpoints by fitting independent phylogenies to alignment segments and comparing model fit across candidate partitions \cite{kosakovsky_pond_gard_2006}. The repeated tree-fitting and model-comparison steps are computationally intensive, so GARD is generally applied to downsampled alignments instead of surveillance-scale datasets comprising millions of genomes.
 
 More recently, SARS-CoV-2-specific tools have been designed to operate on surveillance-scale datasets. Bolotie uses a hidden Markov model (HMM) where the latent states represent SARS-CoV-2 lineages \cite{varabyou_rapid_2021}. The Viterbi algorithm is used to assign a parental lineage to each position. RIPPLES identifies candidate recombinant sequences by scanning a global mutation-annotated phylogeny for unusually long branches that may represent recombination events \cite{turakhia_pandemic-scale_2022}. For each candidate recombinant sequence, RIPPLES partitions the genome into multiple segments and re-places each onto the global phylogeny using maximum parsimony. RecombinHunt compares segment‑wise mutation patterns on a query sequence to lineage‑specific profiles \cite{alfonsi_data-driven_2024}. It constructs a cumulative likelihood profile across the genome and uses the Akaike information criterion to choose between three models with zero, one, or two breakpoints.
 
-Although these SARS‑CoV‑2–specific tools can be applied to surveillance‑scale datasets, each has method‑specific limitations. Bolotie’s HMM does not model de novo mutations or genotyping errors, which can result in spurious state switches when the query sequence harbors mutations absent from the mutation profile of its true lineage. The HMM’s transition probability is also user‑specified, making breakpoint detection sensitive to this choice. RIPPLES relies on a mutation‑annotated phylogeny. Uneven sampling and sequencing artifacts can inflate or deflate the long‑branch signal used to identify candidate recombinants. Moreover, the threshold for the long-branch signal is defined by the user, and the initial candidate set of recombinant sequences is sensitive to this chosen cutoff. RecombinHunt relies on several hard evidence gates (e.g., declaring a genome non‑recombinant when it differs from the most likely lineage by two or fewer mutations). These thresholds are likewise sensitive to de novo mutations and genotyping errors. Finally, both RIPPLES and RecombinHunt permit at most two breakpoints, even though recombinant lineages with more breakpoints have been detected.
+Although these SARS‑CoV‑2–specific tools can be applied to surveillance‑scale datasets, each has method‑specific limitations. Bolotie's HMM does not model de novo mutations or genotyping errors, which can result in spurious state switches when the query sequence harbors mutations absent from the mutation profile of its true lineage. The HMM's transition probability is also user‑specified, making breakpoint detection sensitive to this choice. RIPPLES relies on a mutation‑annotated phylogeny. Uneven sampling and sequencing artifacts can inflate or deflate the long‑branch signal used to identify candidate recombinants. Moreover, the threshold for the long-branch signal is defined by the user, and the initial candidate set of recombinant sequences is sensitive to this chosen cutoff. RecombinHunt relies on several hard evidence gates (e.g., declaring a genome non‑recombinant when it differs from the most likely lineage by two or fewer mutations). These thresholds are likewise sensitive to de novo mutations and genotyping errors. Finally, both RIPPLES and RecombinHunt permit at most two breakpoints, even though recombinant lineages with more breakpoints have been detected.
 
-In this paper, we develop a method to detect recombinant SARS‑CoV‑2 sequences within a test set of sequences collected over a short interval (a few days to a week). Our method employs an HMM inspired by the Li and Stephens model \cite{li_modeling_2003} that accounts for de novo mutations and genotyping errors in both recombinant and non‑recombinant sequences. For each test sequence, we estimate a pseudo-frequency for observing alleles absent from the parental lineage at a position, and the lineage-transition probability between consecutive sites. We implement an efficient version of the forward algorithm to speed up estimation of these frequencies (see Supplementary Materials). We then infer the local Pango lineage ancestry, defined as the sequence of Pango lineages ancestral at each genomic position of the test sequence, using lineage-specific nucleotide frequencies computed from prior sequences. We classify a test sequence as a recombinant if the inferred local Pango lineage ancestry contains one or more lineage transitions. Our method does not rely on a phylogeny nor any user‑defined parameters, and can accommodate any number of breakpoints.
+In this paper, we develop a method to detect recombinant SARS‑CoV‑2 sequences within a test set of sequences collected over a short interval (a few days to a week). Our method employs an HMM inspired by the Li and Stephens model \cite{li_modeling_2003} that accounts for de novo mutations and genotyping errors in both recombinant and non‑recombinant sequences. For each test sequence, we estimate a pseudo-frequency for observing alleles absent from the parental lineage at a position, and the lineage-transition probability between consecutive sites. We implement an efficient version of the forward algorithm to speed up estimation of these frequencies (see Supplementary Materials). We then predict the local Pango lineage ancestry, defined as the sequence of Pango lineages ancestral at each genomic position of the test sequence, using lineage-specific nucleotide frequencies computed from prior sequences. We classify a test sequence as a recombinant if the predicted local Pango lineage ancestry contains one or more lineage transitions. Our method does not rely on a phylogeny or any user‑defined parameters, and can accommodate any number of breakpoints.
 
-We evaluate performance in a simulation where we generated synthetic recombinant and control genomes from SARS-CoV-2 sequences sampled between January and March 2022. We report sensitivity and specificity for classifying sequences as recombinant or non-recombinant, the fraction of synthetic sequences for which we recovered the true parental lineages, and mean distances between true and inferred breakpoints.
+We evaluate performance in a simulation where we generated synthetic recombinant and control genomes from SARS-CoV-2 sequences sampled between January and March 2022. 
+%We report sensitivity and specificity for classifying sequences as recombinant or non-recombinant, the fraction of synthetic sequences for which we recovered the true parental lineages, and mean distances between true and predicted breakpoint locations.
+We also apply our method to 440,307 SARS‑CoV‑2 genomes from GenBank, sampled in England between September 2020 and March 2024 \cite{benson_genbank_2013} to identify recombinant sequences and measure their prevalence through time and occurrence across lineages.  
 
-We apply our method to 440,307 SARS‑CoV‑2 genomes from GenBank, sampled in England between September 2020 and March 2024 \cite{benson_genbank_2013}. We assign these sequences to contiguous, non-overlapping test windows. We detect 7,619 recombinant sequences, corresponding to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of all sequences. We show that the proportion of sequences detected as recombinant in each test window is positively associated with community SARS-CoV-2 prevalence estimated in the UK Office of National Statistics (ONS) Coronavirus Infection Survey \cite{pouwels_community_2021}. This is consistent with higher prevalence increasing co-infection risk and thereby promoting the emergence of recombinant sequences. We further find a positive association between the number of detected recombinants stratified by unique parental lineage pairs (e.g., BA.1.1--BA.2) and an estimate of expected counts based on co-infection dynamics between these lineage pairs. Finally, we observe enrichment of detected recombination breakpoints using our method within Spike and in intergenic regions.
+% We assign these sequences to contiguous, non-overlapping test windows. We detect 7,619 recombinant sequences, corresponding to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of all sequences. We show that the proportion of sequences detected as recombinant in each test window is positively associated with community SARS-CoV-2 prevalence estimated in the UK Office of National Statistics (ONS) Coronavirus Infection Survey \cite{pouwels_community_2021}. This is consistent with higher prevalence increasing co-infection risk and thereby promoting the emergence of recombinant sequences. We further find a positive association between the number of detected recombinants stratified by unique parental lineage pairs (e.g., BA.1.1--BA.2) and an estimate of expected counts based on co-infection dynamics between these lineage pairs. Finally, we observe enrichment of detected recombination breakpoints using our method within Spike and in intergenic regions.
 
 %%% METHODS %%%
 \section{Materials and methods}
@@ -149,47 +146,43 @@ Figure \ref{fig:method} summarizes our workflow for detecting the local Pango li
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.9\textwidth]{figures/hmm/methods6.png}
-  \caption[Overview]{Overview of methods. We first organize SARS-CoV-2 sequences collected in England between September 2020 and March 2024 into sliding windows of 43 days, which are advanced by 7 day increments (panel a). In each sliding window, the first 36 days and last 7 days respectively comprise the reference window and test window. Sequences collected during the reference window comprise the reference set of sequences containing the mutational profile of each Pango lineage (panel b). We next calculate the nucleotide frequency matrix containing per-position allele frequencies for each Pango lineage in the reference set (panel c). For each test sequence collected during the test window (panel d), we use maximum likelihood to estimate frequencies that parameterize the transition and emission probabilities of our HMM. We then use the Viterbi algorithm to infer the local Pango lineage ancestry for this sequence (panel e).}
+  \includegraphics[width=1.0\textwidth]{figures/hmm/methods6.png}
+  \caption[Overview]{Overview of methods. (a) We first organize SARS-CoV-2 sequences collected in England between September 2020 and March 2024 into sliding windows of 43 days, which are advanced by 7 day increments. (b) In each sliding window, the first 36 days and last 7 days respectively comprise the reference window and test window. Sequences collected during the reference window comprise the reference set of sequences containing the mutational profile of each Pango lineage. (c) We next calculate the nucleotide frequency matrix containing per-position allele frequencies for each Pango lineage in the reference set. (d) For each test sequence collected during the test window, we use maximum likelihood to estimate frequencies that parameterize the transition and emission probabilities of our HMM. (e) We then use the Viterbi algorithm to predict the local Pango lineage ancestry for this sequence (panel e).}
   \label{fig:method}
 \end{figure}
 
-% We then use the Viterbi algorithm to infer the local Pango lineage ancestry for this sequence (panel e), which depends on the estimated pseudo-frequency and transition probability from the previous step.
-
 \subsection{Obtaining SARS-CoV-2 sequences and clustering Pango lineages}\label{subsec:data}
 
-We obtained SARS-CoV-2 sequences and associated metadata from GenBank, processed using the Nextstrain pipeline \cite{hadfield_nextstrain_2018}. After filtering for sequences collected in England between September 2020 and March 2024, we clustered Pango lineages based on their sequence count. Any Pango lineages with fewer than 10,000 sequences were collapsed into their parental lineage using unaliased Pango lineage names \cite{otoole_assignment_2021}. This was done iteratively to ensure that all collapsed Pango lineages contained at least 10,000 sequences. 
-Lineages without a defined parent were grouped into a shared ``other" category. We collapsed 2,304 Pango lineages that existed during this period to 41 collapsed lineages (including the ``other" category). Unless otherwise specified, all mentions of Pango lineages refer to the collapsed lineages resulting from this procedure. 
+We obtained SARS-CoV-2 sequences and metadata from GenBank, processed using the Nextstrain pipeline \cite{hadfield_nextstrain_2018}. After filtering for sequences collected in England between September 2020 and March 2024, we clustered Pango lineages based on their sequence count. We collapsed any Pango lineage with fewer than 10,000 sequences into its parental lineage, using unaliased Pango lineage names \cite{otoole_assignment_2021}. This was done iteratively to ensure that all collapsed Pango lineages contained at least 10,000 sequences. 
+Lineages without a defined parent were grouped into a shared ``other'' category. We collapsed 2,304 Pango lineages that existed during this period to 41 collapsed lineages (including the ``other'' category). Unless otherwise specified, all mentions of Pango lineages refer to the collapsed lineages resulting from this procedure. 
 
 \subsection{Reference and test sets}\label{subsec:reference_set}
 
 From the sequences collected in England between September 2020 and March 2024, we generated sliding windows of reference and test set pairs. Each sliding window consisted of 43 days, and these windows were incremented by 7 days at a time to generate 185 sliding windows.
 
-In each 43-day sliding window, the first 36 days define the reference window, and the last 7 days define the test window. Sequences collected during the reference and test windows respectively comprise the reference and test sets for this sliding window. 
+In each 43-day sliding window, the first 36 days and last 7 days respectively comprise the reference window and test window. Sequences collected during the reference and test windows respectively comprise the reference and test sets for this sliding window. 
 
-If more than 100,000 sequences were collected during the reference window, we drew a random sample of 100,000 sequences and used this as the reference set. Similarly, if more than 3,000 sequences were collected during the test window, we drew a random sample of 3,000 sequences and used this as the test set. 
+If more than 100,000 sequences were available during the reference window, we drew a random sample of 100,000 sequences and used this as the reference set. Similarly, if more than 3,000 sequences were available during the test window, we drew a random sample of 3,000 sequences and used this as the test set. 
 
-This process results in 185 pairs of reference and test sets. In the following sections, we describe our process for calculating the nucleotide frequency matrix for each reference set, and our HMM, which uses the nucleotide frequency matrix to infer the local Pango lineage ancestry for each sequence in the paired test set. 
- % These thresholds were chosen empirically to (i) keep the reference sets large enough to yield stable nucleotide-frequency estimates, (ii) provide a test set that captures a representative ``snapshot" of recombinants emerging within each 7-day period, and (iii) keep downstream HMM ancestry inference computationally tractable.
+This process results in 185 pairs of reference and test sets. In the following sections, we describe our process for calculating the nucleotide frequency matrix for each reference set. We then define our HMM, which uses the nucleotide frequency matrix to predict the local Pango lineage ancestry for each sequence in the paired test set. 
+
 \subsection{Calculating the nucleotide frequency matrix}\label{subsec:freq_matrix}
 
-For each of the 185 reference sets, we calculated a nucleotide frequency matrix that contains the frequency of each nucleotide (A, C, G, T) at every genomic position for each Pango lineage. Nucleotide frequencies were calculated by dividing nucleotide counts at each position by the total sequence count within each Pango lineage.  When calculating frequencies, we excluded all non-standard nucleotides (i.e., those other than A, C, G, T). If no sequences in a Pango lineage carried any of the standard nucleotides at a position, we assigned equal probabilities (0.25 each) to A, C, G, and T.
+For each of the 185 reference sets, we calculated a nucleotide frequency matrix that contains the frequency of each nucleotide (A, C, G, and T) at every genomic position for each Pango lineage. Nucleotide frequencies were calculated by dividing nucleotide counts at each position by the total sequence count within each Pango lineage.  When calculating frequencies, we excluded all non-standard nucleotides (i.e., those other than A, C, G, and T). If no sequences in a Pango lineage carried any of the standard nucleotides at a position, we assigned equal probabilities (0.25 each) to A, C, G, and T.
 
 \subsection{Predicting the local Pango lineage ancestry}
 
-The local Pango lineage ancestry of a SARS-CoV-2 sequence refers to the sequence of Pango lineages contributing ancestry to each genomic position of the SARS-CoV-2 sequence. 
+The local Pango lineage ancestry of a SARS-CoV-2 sequence refers to the sequence of Pango lineages ancestral to each genomic position of the SARS-CoV-2 sequence. 
 
-If a sequence results from a recombination event between two sequences in two distinct Pango lineages, its local Pango lineage ancestry will consist of segments derived from these distinct lineages, with transitions between segments marking recombination breakpoints. Conversely, for non-recombinant sequences, the local Pango lineage ancestry will only contain a single parental lineage. It is important to note that the true local Pango lineage ancestry of a sequence in a test set is defined in relation to the Pango lineages present in the paired reference set. For example, lineages $L_1$, $L_2$, and $L_3$ may all be present in the paired reference set, with lineage $L_3$ arising from a recombination event between two sequences in lineages $L_1$ and $L_2$ respectively. Suppose that there is a sequence from lineage $L_3$ in the test set. In this case, the true local Pango lineage ancestry of this sequence will have $L_3$ as the lineage contributing ancestry at all genomic positions. 
+If a sequence derives from a recombination event between two sequences in two distinct Pango lineages, its local Pango lineage ancestry will consist of segments from these distinct lineages, with transitions between segments marking recombination breakpoints. Conversely, for non-recombinant sequences, the local Pango lineage ancestry will only contain a single parental lineage. It is important to note that the true local Pango lineage ancestry of a sequence in a test set is defined in relation to the Pango lineages present in the paired reference set. For example, lineages $L_1$, $L_2$, and $L_3$ may all be present in the paired reference set, with lineage $L_3$ arising from a recombination event between two sequences in lineages $L_1$ and $L_2$ respectively. Suppose that there is a sequence from lineage $L_3$ in the test set. In this case, the true local Pango lineage ancestry of this sequence will have $L_3$ as the lineage contributing ancestry at all genomic positions. 
 
 We predict the local Pango lineage ancestry of all sequences in each test set using the nucleotide frequency matrix calculated from the corresponding reference set and an HMM inspired by the Li and Stephens model \cite{li_modeling_2003}.
 
-This HMM jointly models the latent local Pango lineage ancestry and the observed nucleotide sequence for each test sequence. It does so by considering three key components: (i) the probability of each Pango lineage contributing ancestry at the first position (initial state probabilities), (ii) the probability of transitioning between different Pango lineages along the genome (transition probabilities), and (iii) the probability of observing each nucleotide at a given position, conditional on the Pango lineage (emission probabilities). Transitions between lineages correspond to recombination events. 
- 
 \subsection{Hidden Markov model to predict local Pango lineage ancestry}
 
-In this section, we define the HMM used to predict the local Pango lineage ancestry of a sequence in any given test set. We henceforth refer to this sequence as our test sequence.
-
-Let the genome length be denoted by $N$ and let $t \in \{1, 2, \dots, N\}$ index genomic positions. Our sequences are aligned, so all of our sequences have length $N$.
+This HMM jointly models the latent local Pango lineage ancestry and the observed nucleotide sequence for each test sequence. It does so by considering three key components: (i) the probability of each lineage providing ancestry at the first position (initial state probabilities), (ii) the probability of transitioning between parental lineages from one position to the next (transition probabilities), and (iii) the probability of observing each nucleotide at a given position, conditional on the parental lineage (emission probabilities). Transitions between lineages correspond to recombination events. 
+ 
+Here, we define the HMM used to predict the local Pango lineage ancestry of a sequence in any given test set. We henceforth refer to this sequence as our test sequence. Let the genome length be denoted by $N$ and let $t \in \{1, 2, \dots, N\}$ index genomic positions. Our sequences are aligned, so all of our sequences have length $N$.
 
 For our test sequence, we define the random variable for the parental Pango lineage at position $t$ as $Z_t$. $Z_t$ is supported on $\{1, 2, \dots, M\}$, where $M$ is the number of distinct Pango lineages contained in the paired reference set (the reference set paired with the test set from which the test sequence is drawn). Each value of $\{1, 2, \dots, M\}$ corresponds to one of these Pango lineages. 
 
@@ -199,7 +192,7 @@ In the following sections, we define the three key components of this HMM, which
 
 \subsubsection{Initial state probabilities}
 
-The initial state probabilities represent the probability of each Pango lineage being the parental lineage of the test sequence at the first genomic position. We define the initial state probability of Pango lineage $i$ ($i \in \{1, 2, \dots, M\}$) as $\pi_i = P(c_1 = i)$, where $c_1$ denotes the parental lineage of the test sequence at the first position. In our model, we set $\pi_i$ proportional to the frequency of lineage $i$ in the paired reference set. Let $n_i$ be the number of sequences assigned to lineage $i$ in the reference set, and let $n_{\text{total}} = \sum_{j=1}^M n_j$ be the total number of sequences across all $M$ lineages. Then,
+The initial state probabilities give the probability of each Pango lineage being the parental lineage of the test sequence at the first genomic position. We define the initial state probability of Pango lineage $i$ ($i \in \{1, 2, \dots, M\}$) as $\pi_i = P(Z_1 = i)$. In our model, we set $\pi_i$ to the frequency of lineage $i$ in the paired reference set. Let $n_i$ be the number of sequences assigned to lineage $i$ in the reference set, and let $n_{\text{total}} = \sum_{j=1}^M n_j$ be the total number of sequences across all $M$ lineages. Then,
 
 \begin{align*}
     \pi_i = \frac{n_i}{n_{\text{total}}}, \quad i \in \{1, 2, \dots, M\}.
@@ -207,7 +200,7 @@ The initial state probabilities represent the probability of each Pango lineage 
 
 \subsubsection{Transition probabilities}
 
-Transition probabilities represent the probability that we will transition from one parental Pango lineage to another between consecutive positions on the test sequence. Here, transitions between Pango lineages correspond to recombination breakpoints. We define the transition probability from Pango lineage $i$ to Pango lineage $j$ as
+The transition probabilities give the probability of transitioning from one parental Pango lineage to another between consecutive positions on the test sequence. Here, transitions between Pango lineages correspond to recombination breakpoints. We define the transition probability from Pango lineage $i$ to Pango lineage $j$ as
 
 \begin{align*}
 a_{ij} = P(Z_{t+1} = j \mid Z_t = i), \quad i,j \in \{1, 2, \dots, M\}, \quad t \in \{1, 2, \dots, N-1\}.
@@ -239,7 +232,7 @@ $\lambda$ is the probability that there is a recombination breakpoint between co
 
 \subsubsection{Emission probabilities}
 
-Emission probabilities of the HMM define the probability of observing each nucleotide (i.e., A, C, G, T) at a particular position on the test sequence, conditional on the parental Pango lineage at that position. We define the emission probability of observing nucleotide $k$ at position $t$, conditional on the parental Pango lineage being $i$ at position $t$, as
+The emission probabilities give the probability of observing each nucleotide (i.e., A, C, G, or T) at a particular position on the test sequence, conditional on the parental Pango lineage at that position. We define the emission probability of observing nucleotide $k$ at position $t$, conditional on the parental Pango lineage being $i$ at position $t$, as
 
 \begin{align*}
     b_{i,t}(k) = P(O_t = k|Z_t = i), \quad k \in \{\text{A}, \text{C}, \text{G}, \text{T}\}, \quad i \in \{1, 2, \dots, M\}, \quad t \in \{1, 2, \dots, N\}.
@@ -251,9 +244,9 @@ $b_{i,t}(k)$ depends on the nucleotide frequency matrix calculated from the pair
 b_{i,t}(k) = \frac{f_{i,t}(k) + \epsilon}{1 + 4\epsilon}.
 \end{align*}
 
-The pseudo-frequency $\epsilon$ assigns a non-zero probability of observing a nucleotide at position $t$, when the parental Pango lineage at $t$ contains no sequences that have this nucleotide in the reference set. We want to allow for this non-zero probability in case the test sequence has acquired a mutation (or genotyping error) at position $t$ that leads to an observed nucleotide that is not contained in the Pango lineage. A small value of $\epsilon$ allows occasional mutations or genotyping errors without forcing a lineage switch in the inferred local Pango lineage ancestry. Because $\epsilon$ is an unknown parameter, we describe our method for estimating $\epsilon$ in the following section.
+The pseudo-frequency $\epsilon$ assigns a non-zero probability of observing a nucleotide at position $t$, when the parental Pango lineage at $t$ contains no sequences that have this nucleotide at $t$ in the reference set. We want to allow for this non-zero probability in case the test sequence has acquired a mutation (or genotyping error) at position $t$ that leads to an observed nucleotide that is not contained in the parental Pango lineage. A small value of $\epsilon$ allows occasional mutations or genotyping errors without forcing a lineage switch in the predicted local Pango lineage ancestry. Because $\epsilon$ is an unknown parameter, we describe our method for estimating $\epsilon$ in the following section.
 
-We assume that positions with non-ACGT calls contain no information about the true nucleotide and assign an emission probability of 1 across all parental Pango lineages.
+We assume that positions with non-ACGT calls contain no information about the true nucleotide. Thus, we assign an emission probability of one to non-ACGT calls across all parental Pango lineages.
 
 \begin{table}[ht]
 \centering
@@ -270,7 +263,7 @@ $\epsilon$ & Pseudo-frequency for emissions (accounts for mutations and genotypi
 $a_{ij}$ & Transition probability from lineage $i$ to lineage $j$ \\
 $b_{i,t}(k)$ & Emission probability of nucleotide $k$ at $t$ given $Z_t=i$ \\
 $f_{i,t}(k)$ & Frequency of nucleotide $k$ at $t$ in lineage $i$ in the reference set \\
-$\pi_i$ & Initial state probability that $c_1=i$ \\
+$\pi_i$ & Initial state probability that $Z_1=i$ \\
 \bottomrule
 \end{tabular}
 \caption[Summary of symbols used in the hidden Markov model]{Summary of symbols used in the HMM.}
@@ -278,11 +271,11 @@ $\pi_i$ & Initial state probability that $c_1=i$ \\
 
 \subsection{Maximum likelihood estimation of parameters in the hidden Markov model}\label{sec:MLEHMM}
 
-We have two unknown parameters in our HMM. $\lambda$ represents the probability that the parental Pango lineage changes between consecutive positions and $\epsilon$ is our psuedo-frequency, which adjusts emission probabilities to accommodate mutations or genotyping errors on the test sequence.
+We have two unknown parameters in our HMM. $\lambda$ is the probability that the parental Pango lineage changes between consecutive positions and $\epsilon$ is our pseudo-frequency, which adjusts emission probabilities to accommodate mutations or genotyping errors on the test sequence.
 
 To perform maximum likelihood estimation on these two parameters, we first obtain the probability of the observed nucleotide sequence of the test sequence, conditional on these two parameters. In this section, we describe the procedure we use to obtain this probability.
 
-Using the transition and emission probabilities described in the previous sections, it is relatively straightforward to obtain the joint probability of a candidate local Pango lineage ancestry and the observed nucleotide sequence for a test sequence. Let $i_{1:N} = (i_1,i_2,\hdots,i_N) \in\States^N$ be a candidate local Pango lineage ancestry and $k_{1:N} = (k_1,k_2,\hdots,k_N)$ be the observed nucleotide sequence of this test sequence. Finally, let $Z_{1:N} = (Z_1,Z_2,\hdots,Z_N)$ and $O_{1:N} = (O_1,O_2,\hdots,O_N)$. Then,
+Using the transition and emission probabilities described in the previous sections, it is relatively straightforward to obtain the joint probability of a candidate local Pango lineage ancestry and the observed nucleotide sequence for a test sequence. Let $i_{1:N} = (i_1,i_2,\hdots,i_N) \in\States^N$ be a candidate local Pango lineage ancestry and $k_{1:N} = (k_1,k_2,\hdots,k_N)\in \{\text{A},\text{C},\text{G},\text{T}\} ^N$ be the observed nucleotide sequence of this test sequence. Finally, let $Z_{1:N} = (Z_1,Z_2,\hdots,Z_N)$ and $O_{1:N} = (O_1,O_2,\hdots,O_N)$. Then,
 
 \begin{align*}
     P(Z_{1:N}=i_{1:N},\,O_{1:N}=k_{1:N}\mid \lambda,\epsilon)
@@ -299,27 +292,27 @@ To obtain the marginal probability of the observed nucleotide sequence, we can s
     \Bigg(\prod_{t=1}^{N} b_{i_t,t}(k_t)\Bigg),
 \end{align*}
 
-This procedure can be done efficiently using the forward algorithm described by Rabiner \cite{rabiner_tutorial_1989}. We implemented an efficient version of the forward algorithm that computes the induction step in $\mathcal{O}(M)$ time compared to the normal $\mathcal{O}(M^2)$ time (see supplementary materials). We can maximize this marginal probability with respect to our two parameters to obtain our maximum likelihood estimates, as shown below.
+This procedure can be done efficiently using the forward algorithm described by Rabiner \cite{rabiner_tutorial_1989}. We implemented a fast version of this forward algorithm that computes the induction step in $\mathcal{O}(M)$ time compared to the normal $\mathcal{O}(M^2)$ time (see Supplementary Materials). We can maximize this marginal probability with respect to our two parameters to obtain our maximum likelihood estimates, as shown below.
 
 \begin{align*}
     \hat\lambda, \hat\epsilon = \argmax_{\lambda,\epsilon}P(O_{1:N} = k_{1:N} \mid\lambda,\epsilon).
 \end{align*}
 
-Maximum likelihood estimation of $\lambda$ and $\epsilon$ is done for each test sequence. Optimization was carried out with the limited-memory BFGS algorithm subject to box constraints, using \texttt{scipy.optimize.minimize} (\texttt{method = "L-BFGS-B"})\,\cite{virtanen_scipy_2020}. Our efficient forward algorithm results in a large reduction in computation time, because the marginal likelihood is evaluated repeatedly during L-BFGS-B optimization.
+Maximum likelihood estimation of $\lambda$ and $\epsilon$ is done for each test sequence. Optimization was carried out with the limited-memory BFGS algorithm subject to box constraints, using \texttt{scipy.optimize.minimize} (\texttt{method = "L-BFGS-B"})\,\cite{virtanen_scipy_2020}. Our version of the forward algorithm results in a large reduction in computation time, because the marginal likelihood is evaluated repeatedly during L-BFGS-B optimization.
 
 During numerical optimization, we reparameterize $\lambda$ to $\tau = \lambda(N-1)$, which represents the expected number of transitions for the test sequence. Furthermore, we optimized $\epsilon$ on the log scale and later exponentiated to obtain our estimate in the original scale. The search was initialized at $(\log(\epsilon),\tau) = (\log(0.005),\,1)$ and restricted to the intervals $\log(\epsilon) \in [\log(10^{-8}),\,\log(0.02)]$ and $\tau \in [0,\,3]$. The reparameterization of $\lambda$ to $\tau$ was done to avoid possible numerical instabilities that might arise when trying to optimize $\lambda$ directly, because we expect $\lambda$ to be close to zero. We similarly optimized $\epsilon$ in the log scale because we expect $\epsilon$ to be close to zero. 
 
-We chose the upper bound of three for $\tau$ because most discovered recombinant lineages were detected to have three or fewer breakpoints. However, this does not prevent the inferred local Pango lineage ancestry from having more than three breakpoints. 
+We chose the upper bound of three for $\tau$ because most discovered recombinant lineages were detected to have three or fewer breakpoints. However, this does not prevent the predicted local Pango lineage ancestry from having more than three breakpoints. 
 
 \subsection{Obtaining the most likely sequence of Pango lineage ancestry}\label{sec:Viterbi}
 
-We apply the Viterbi algorithm \cite{rabiner_tutorial_1989} to each test sequence to infer the most probable sequence of parental Pango lineage states along the genome,
+We apply the Viterbi algorithm \cite{rabiner_tutorial_1989} to each test sequence to obtain the most probable sequence of parental Pango lineage states along the genome,
 
 \begin{align*}
 \hat{i}_{1:N} = (\hat{i}_1, \ldots, \hat{i}_N).
 \end{align*}
 
-This represents the inferred local Pango lineage ancestry for this test sequence. Transitions between Pango lineage ancestries represent inferred recombination breakpoints.
+This represents the predicted local Pango lineage ancestry for this test sequence. Transitions between Pango lineage ancestries represent predicted recombination breakpoints.
 
 When applying the Viterbi algorithm, we use our maximum likelihood estimates of the two frequencies, $\lambda$ and $\epsilon$, described in earlier sections. Specifically, we compute the sequence of Pango lineage ancestry that maximizes the joint probability of the ancestry path and the observed nucleotide sequence, given our maximum likelihood estimates. In other words,
 
@@ -343,7 +336,7 @@ P(Z_{1:N}=i_{1:N} \mid O_{1:N}=k_{1:N},
 
 % \section{Obtaining the mean maximum posterior probability for each test sequence}\label{sec:MMPP}
 
-% To quantify the confidence of our local ancestry inference, we computed the mean maximum posterior probability (MMPP) for each test sequence. This measure summarizes the model's certainty in assigning a Pango lineage ancestry individually for each genomic position. 
+% To quantify the confidence of our local ancestry predictions, we computed the mean maximum posterior probability (MMPP) for each test sequence. This measure summarizes the model's certainty in assigning a Pango lineage ancestry individually for each genomic position. 
 
 % For each genomic position $t \in \{1, \dots, N\}$, the posterior probability of lineage $i \in \{1, 2, \dots, M\}$ being the ancestral Pango lineage is denoted by $P(Z_t = i \mid O_1 = k_1, O_2 = k_2, \hdots, O_N = k_N,
 % \hat\sigma, \hat\epsilon)$, which is computed using the forward-backward algorithm described by Rabiner \cite{rabiner_tutorial_1989}.
@@ -362,27 +355,21 @@ P(Z_{1:N}=i_{1:N} \mid O_{1:N}=k_{1:N},
 
 \subsection{Simulation study}\label{sec:sim_recomb}
 
-% Try to make the simulation study as close to the real data analysis as possible. So for example, we should be making the number of recombinant and non-recombinant sequences similar to a test set, to assess prevalence estimates
-
-% We also want to assess whether confidence measures affect our estimates (prevalence and sensitivity, specificity)
-
-% We should be assessing prevalence, sensitivity and specificity as a function of what? 
-
-To assess our method’s ability to detect recombination and accurately assign local Pango lineage ancestries, we conducted a simulation study using synthetic SARS-CoV-2 sequences with known local Pango lineage ancestries. These synthetic sequences were generated from real SARS-CoV-2 genomes.
+To assess our method’s ability to detect recombination and accurately predict local Pango lineage ancestries, we conducted a simulation study using synthetic SARS-CoV-2 sequences with known local Pango lineage ancestries. These synthetic sequences were generated from real SARS-CoV-2 genomes.
 
 We generated these synthetic sequences using the reference set comprised of 14,599 SARS-CoV-2 sequences collected in England between November 6, 2022 and December 11, 2022. We simulated 1,000 recombinant sequences with two parental lineages and 1,000 control sequences with one parental lineage. 
 
-Of the 1,000 recombinant sequences, 500 of them were generated using a single recombination breakpoint. To generate these sequences, we randomly sampled two parental sequences from different Pango lineages in the reference set and copied nucleotides from one parent up to a breakpoint randomly chosen on the genome, and from the other parent thereafter. The remaining 500 recombinant sequences were generated using two breakpoints. For these sequences, we again sampled two parental sequences from different Pango lineages. We chose two breakpoints randomly from all possible breakpoint combinations on the genome and inserted a middle segment from one sequence between these breakpoints, replacing the corresponding region in the genome of the other sequence. 
+We generated 500 recombinant sequences using a single recombination breakpoint. To generate these sequences, we randomly sampled two parental sequences from two different Pango lineages in the reference set and copied nucleotides from one parent up to a breakpoint randomly chosen on the genome, and from the other parent thereafter. We generated the remaining 500 recombinant sequences using two breakpoints. For these sequences, we again sampled two parental sequences from different Pango lineages. We chose two breakpoints randomly from all possible breakpoint combinations on the genome and inserted a middle segment from one sequence between these breakpoints, replacing the corresponding region in the genome of the other sequence. If a synthetic recombinant sequence was identical to or differed by only one mutation from one of its parental sequences, we discarded this sequence and repeated the sequence generation process. We obtained 1,000 control sequences by sampling 1,000 sequences at random from the reference set. 
 
-When a synthetic recombinant sequence differed by less than two mutations from one of its parental sequences, we discarded this sequence and repeated the sequence generation process. To mimic mutations, we drew the mutation count from an empirical distribution obtained by tallying nucleotide substitution counts on each branch of a tree containing one tip per Pango lineage \cite{hadfield_nextstrain_2018}. The empirical distribution of nucleotide substitution counts was right-skewed (n = 567; median = 2 [IQR 1–4]; mean = 3.45; 95th percentile = 8; range 1–70).
+To mimic mutations on all 2,000 synthetic sequences, we drew the mutation count from an empirical distribution obtained by tallying nucleotide substitution counts on each branch of a tree containing one tip per Pango lineage \cite{hadfield_nextstrain_2018}. The empirical distribution of nucleotide substitution counts was right-skewed (n = 567; median = 2 [IQR 1–4]; mean = 3.45; 95th percentile = 8; range 1–70). Given the drawn mutation count $m$, we sampled $m$ genomic positions uniformly at random and replaced the existing nucleotide at each position with one of the other four nucleotides (A, C, G, T, or N, excluding the original base) chosen at random. In our aligned sequences, N represents an unknown nucleotide.
 
-For each of the 2,000 synthetic sequences, we used the method described in Section \ref{sec:Viterbi} to predict the local Pango lineage ancestry. Emission probabilities for the HMM were based on the nucleotide frequency matrix calculated from the reference set of sequences collected between November 6, 2022 and December 11, 2022.
+For each of the 2,000 synthetic sequences, we applied the method described in Section \ref{sec:MLEHMM} to estimate the transition probability $\lambda$ and pseudo-frequency $\epsilon$. We then predicted the local Pango lineage ancestry for each sequence using the method described in Section \ref{sec:Viterbi}. Emission probabilities for the HMM were based on the nucleotide frequency matrix calculated from the reference set of sequences collected between November 6, 2022 and December 11, 2022.
 
-To evaluate performance, we conducted several quantitative assessments. First, we estimated the sensitivity and specificity of our method for detecting recombinant sequences. We classified a test sequence as a recombinant if the inferred local Pango lineage ancestry contained at least one lineage transition. Controls were treated as true negatives, and synthetic recombinants as true positives. 
+To evaluate performance, we conducted several quantitative assessments. First, we estimated the sensitivity and specificity of our method for classifying sequences as recombinant or non-recombinant. We classified a synthetic sequence as a recombinant if the predicted local Pango lineage ancestry contained at least one lineage transition.
 
-Second, we estimated the mean position-by-position accuracy of the inferred local Pango lineage ancestry across synthetic sequences by comparing the inferred parental lineage at each genomic position to the true parental lineage. 
+Second, we calculated the mean position-by-position accuracy of the predicted local Pango lineage ancestry across synthetic sequences by comparing the predicted parental lineage at each genomic position to the true parental lineage. 
 
-Third, we assessed whether the parental lineage(s) were correctly recovered for each synthetic sequence. Non-recombinant controls only have one parental lineage, while recombinants have two parental lineages. Both the mean position-by-position accuracy and the recovery rate of parental lineages were estimated separately for recombinant and non-recombinant sequences. 
+Third, we assessed whether the correct parental lineage (for control sequences) or lineage pair (for recombinant sequences) was correctly recovered. We calculated the proportion of synthetic sequences for which the parental lineage or lineage pair was correctly recovered. Both the mean position-by-position accuracy and the recovery rate of parental lineages were calculated separately for recombinant and non-recombinant sequences. 
 
 For the sensitivity, specificity, and recovery rate of parental Pango lineages, we report 95\% exact binomial confidence intervals. For mean position-by-position accuracy, we calculated 95\% bootstrap confidence intervals by sampling 500 times with replacement from synthetic sequences (either from the set of recombinants or the set of non-recombinant sequences), calculating the mean position-by-position accuracy in each bootstrap sample, and taking the 2.5th and 97.5th percentiles of the bootstrapped estimates. 
 
@@ -404,34 +391,34 @@ For the sensitivity, specificity, and recovery rate of parental Pango lineages, 
 % where $[\widehat{\text{Se}}_L,\widehat{\text{Se}}_U]$ and $[\widehat{\text{Sp}}_L,\widehat{\text{Sp}}_U]$ are
 % \v{S}id\'ak\text{-}adjusted marginal confidence intervals for sensitivity and specificity at level $1-\alpha'$ with $1-\alpha'=\sqrt{1-\alpha}$ (for $\alpha=0.05$, $1-\alpha'\approx 0.97468$), yielding nominal $1-\alpha=95\%$ joint coverage. This construction assumes the sampling errors of $\widehat{\text{Se}}$ and $\widehat{\text{Sp}}$ are independent, which is reasonable here because they are computed on disjoint positive and negative validation sets and no parameters are learned jointly from the combined data. 
 
-Because the probability of correctly classifying a synthetic recombinant sequence is higher when the parental sequences of this sequence are less similar, we quantified the association between the sensitivity \(s(d)\) of the HMM and the genome-wide Hamming distance \(d\) between the parental sequences using a logistic regression:
+We next quantified the association between the sensitivity to detect recombinants \(s(d)\) and the genome-wide Hamming distance \(d\) between the parental sequences of recombinants using a logistic regression, which can be written as,
 
 \begin{align*}
-  \text{logit}\!\bigl(s(d)\bigr)=\beta_{0}+\beta_{1}d.
+  \text{logit}\left(s(d)\right)=\beta_{0}+\beta_{1}d.
   \label{eq:logistic_sensitivity}
 \end{align*}
 
-$\exp(\beta_{1})$ represents the multiplicative difference in the odds of detection for two synthetic recombinant sequences whose parental Hamming distances are one unit apart. To fit this logistic regression, we used the HMM's predicted label for all of the synthetic recombinants (1 if the model detected the sequence as a recombinant and 0 otherwise) as the outcome. 
+It follows that $\exp(\beta_{1})$ represents the multiplicative difference in the odds of detection for two synthetic recombinant sequences whose parental Hamming distances are one unit apart. To fit this logistic regression, we used the HMM's predicted label for all 1,000 synthetic recombinants (1 if the model detected the sequence as a recombinant and 0 otherwise) as the outcome. 
 
-To quantify breakpoint resolution, we calculated the distance between each inferred breakpoint and its corresponding true genomic position. We restricted analysis to synthetic recombinants whose detected breakpoint count matched the number of true breakpoints. For synthetic recombinants with one true breakpoint, we calculated the distance between the true and detected breakpoint. For synthetic recombinants with two true breakpoints, we ordered true and detected breakpoints 5' to 3', paired them positionally (1st with 1st, 2nd with 2nd), and calculated the distance between each pair. We then calculated the mean breakpoint distance separately for recombinants with one and two breakpoints.
+To quantify the accuracy of predicted breakpoint positions, we calculated the distance between each predicted breakpoint position and its corresponding true genomic position. We restricted analysis to synthetic recombinants whose detected breakpoint count matched the number of true breakpoints. For synthetic recombinants with one true breakpoint, we calculated the distance between the true and detected breakpoint position. For synthetic recombinants with two true breakpoints, we ordered true and detected breakpoint positions 5' to 3', paired them positionally (first with first, second with second), and calculated the distance between each pair. We then calculated the mean breakpoint distance separately for recombinants with one and two breakpoints.
 
-We obtained 95\% confidence intervals for the mean breakpoint distance via nonparametric bootstrap. Specifically, we sampled recombinant sequences with replacement 500 times within each stratum (one and two breakpoints), calculated the mean breakpoint distance for each bootstrap sample within each stratum, and took the 2.5th and 97.5th percentiles of the bootstrapped estimates.
+We obtained 95\% confidence intervals for the mean breakpoint distance via nonparametric bootstrap. Specifically, we sampled recombinant sequences with replacement 500 times within each stratum (one and two breakpoints), calculated the mean breakpoint distance for each bootstrap sample, and took the 2.5th and 97.5th percentiles of the bootstrapped estimates within each stratum. When detected and true breakpoints counts differed, we did not compute a distance. Instead we recorded the detected and true breakpoint counts per sequence and summarized mismatches in a contingency table.
 
-When the detected and true counts differed, we did not compute a distance. Instead we recorded the detected and true breakpoint counts per sequence and summarized mismatches in a contingency table.
+\subsection{Empirical data analysis}\label{sec:methods_real_data}
 
-\subsection{Real data analysis}\label{sec:methods_real_data}
+We applied our method to the full set of SARS-CoV-2 sequences collected in England between September 2020 and March 2024. We describe how we obtain these sequences in Section \ref{subsec:data}. As described in Section \ref{subsec:reference_set}, sequences were divided into temporally matched reference and test sets using a 43-day sliding window. For each sequence in each test set, we estimated the transition probability $\lambda$ and pseudo-frequency $\epsilon$ using maximum likelihood (see Section \ref{sec:MLEHMM}). We then predicted the local Pango lineage ancestry for each sequence using the Viterbi algorithm (see Section \ref{sec:Viterbi}). There were 440,307 sequences across all test sets. 
 
-We applied our method to the full set of SARS-CoV-2 sequences collected in England between September 2020 and March 2024. We describe how we obtain these sequences in Section \ref{subsec:data}. As described in Section \ref{subsec:reference_set}, sequences were divided into temporally matched reference and test sets using a 43-day sliding window, with a 36-day reference window followed by a 7-day test window. We inferred the local Pango lineage ancestry for sequences in each test window using the method described in Section \ref{sec:Viterbi}. If there were more than 3,000 sequences in a 7-day test window, we randomly sampled 3,000 sequences within the 7-day window and inferred the local Pango lineage ancestry for these sequences. Otherwise, we inferred the local Pango lineage ancestry for all sequences within the 7-day window. 
+We classified any sequence with one or more lineage transitions in their predicted local Pango lineage ancestry as recombinant. For each 7-day test window, we calculated the estimated recombinant proportion, or the number of detected recombinants divided by the total number of tested sequences from this window. Recall that the total number of tested sequences can vary across test windows (see Section \ref{subsec:reference_set}).
 
-After obtaining the predicted local Pango lineage ancestry for test sequences, we classified any sequence with one or more lineage transitions as recombinant. For each 7-day test window, we counted the number of detected recombinant sequences and divided this by the total number of sequences in that test window. We refer to this quantity as the estimated recombinant proportion for the test window.
+We hypothesized that the estimated recombinant proportion would be positively associated with community SARS-CoV-2 prevalence across test windows. This is because co-infection by two distinct Pango lineages, which is required for the emergence of detectable recombinant sequences, occurs more frequently when community prevalence of SARS-CoV-2 is high. To evaluate our hypothesis, we compared the estimated recombinant proportion in each test window with community prevalence estimated from the UK Office for National Statistics (ONS) Coronavirus Infection Survey \cite{pouwels_community_2021}. ONS provides prevalence estimates by date. For comparability, we computed the mean ONS prevalence estimate within each test window and used this window-averaged prevalence estimate in our analysis.
 
-We hypothesized that the estimated recombinant proportion would be positively associated with community SARS-CoV-2 prevalence across test windows. This is because co-infection, which is required for the emergence of recombinant sequences, occurs more frequently when prevalence is higher. To evaluate our hypothesis, we compared the estimated recombinant proportion in each test window with community prevalence measured by the UK Office for National Statistics (ONS) Coronavirus Infection Survey \cite{pouwels_community_2021}. ONS provides prevalence estimates by date. For comparability, we computed the mean ONS prevalence within each test window and used this window-averaged prevalence in our analysis.
-
-We further counted the number of detected recombinants across all windows, stratified by unique parental lineage pairs (e.g., BA.1.1\text{--}BA.2), and compared this to our estimated expected counts for each parental lineage pair based on co-infection dynamics, derived in Section \ref{sec:expected}. Finally, we aggregated inferred breakpoint positions across all detected recombinants to obtain the empirical genome-wide distribution of breakpoint positions. 
+We further counted the number of detected recombinants across all windows, stratified by unique parental lineage pairs (e.g., BA.1.1\text{--}BA.2), and compared this to our estimated expected counts for each parental lineage pair based on co-infection dynamics, derived in Section \ref{sec:expected}. Finally, we aggregated predicted breakpoint positions across all detected recombinants to obtain the empirical genome-wide distribution of breakpoint positions. 
 
 \subsection{Expected recombinant counts}\label{sec:expected}
 
-In this section, we derive the expected number of detected recombinants with each unique parental lineage pair. We show that this expected count (for each lineage pair) depends on the lineage frequencies of the two parental lineages, community SARS-CoV-2 prevalence, and the number of sequences for which we infer local Pango lineage ancestry in each test window. We further discuss our method for estimating these expected counts.
+% Consider moving this section to the Supplement. It's great work, but it's long.
+
+In this section, we derive the expected number of detected recombinants with each parental lineage pair. For each lineage pair, this expected count depends on the lineage frequencies of the two parental lineages, community SARS-CoV-2 prevalence, and the number of sequences tested in each test window. 
 
 We denote the lineage frequency of lineage $i$ in test window $w$, or the proportion of infections attributable to lineage $i$ among all SARS-CoV-2 infections during $w$, as $p_i(w)$. Note that $p_i(w)$ is distinct from the lineage prevalence, which is the overall fraction of the population infected by lineage $i$. We further denote the prevalence of SARS-CoV-2 in window $w$ as $\mathrm{prev}(w)$. Then, it follows that the lineage prevalence of lineage $i$ in window $w$ is $\mathrm{prev}(w)p_i(w)$.
 
@@ -445,16 +432,16 @@ P(\text{co-infected by }i\text{ and }j) = \left[\mathrm{prev}(w)p_i(w)\right]\le
 Conditioning on being infected (all of our sequences are from infected individuals) removes one factor of prevalence. We have,
 
 \begin{align*}
-P(\text{co-infected by }i\text{ and }j \mid \text{infected}) = \mathrm{prev}(w)p_i(w)p_j(w).
+P(\text{co-infected by }i\text{ and }j \mid \text{infected}) = \mathrm{prev}(w) \,p_i(w) \, p_j(w).
 \end{align*}
 
-Next, we denote the number of sequences for which we infer local Pango lineage ancestry in window $w$ as $n(w)$. In our study, $n(w)$ is known. If $X_{i,j}(w)$ denotes the number of sequences among $n(w)$ that are from individuals co-infected by lineages $i$ and $j$, then,
+Next, we denote the number of sequences for which we infer local Pango lineage ancestry in window $w$ as $n(w)$. In our study, $n(w)$ is known. If $X_{i,j}(w)$ denotes the number of sequences among $n(w)$ that are from individuals co-infected by lineages $i$ and $j$, it is reasonable that,
 
 \begin{align*}
-X_{i,j}(w) \sim \mathrm{Binomial}(n(w), \mathrm{prev}(w)p_i(w)p_j(w)).
+X_{i,j}(w) \sim \mathrm{Binomial}\big( n(w), \mathrm{prev}(w) \, p_i(w) \, p_j(w) \big).
 \end{align*}
 
-However, not all sequences from individuals co-infected by lineages $i$ and $j$ will be $i\text{--}j$ recombinants. Furthermore, not all $i\text{--}j$ recombinants will be detected as recombinants. To account for these two factors, we introduce two new parameters $\gamma_{i,j}(w)$ and $s_{i,j}(w)$:
+However, not all sequences from individuals co-infected by lineages $i$ and $j$ will be $i\text{--}j$ recombinants. Furthermore, not all $i\text{--}j$ recombinants will be detected as recombinants using our method. To account for these two factors, we introduce two new parameters $\gamma_{i,j}(w)$ and $s_{i,j}(w)$:
 
 \begin{align*}
 \gamma_{i,j}(w) &=  
@@ -468,26 +455,26 @@ $\theta_{i,j}(w)=\gamma_{i,j}(w)s_{i,j}(w)$, and assume it is constant across li
 
 % To make $\theta$ identifiable, we let $\theta(w) = \theta$ for all $w$. 
 
-Now let $R_{i,j}(w)$ denote the number of detected $i\text{--}j$ recombinants in window $w$. We have that,
+Now let $R_{i,j}(w)$ denote the number of detected $i\text{--}j$ recombinants in window $w$. We have,
 
 \begin{align*}
-R_{i,j}(w)\mid X_{i,j}(w)\sim\mathrm{Binomial}\left(X_{i,j}(w), \theta\right).
+R_{i,j}(w)\mid X_{i,j}(w)\sim\mathrm{Binomial} \big( X_{i,j}(w), \theta \big).
 \end{align*}
 
 It follows that,
 
 \begin{align*}
-R_{i,j}(w)\sim\mathrm{Binomial}\left(n(w), \mathrm{prev}(w)p_i(w)p_j(w)\theta\right).
+R_{i,j}(w)\sim\mathrm{Binomial} \big( n(w), \mathrm{prev}(w) \, p_i(w) \, p_j(w) \, \theta \big).
 \end{align*}
 
 Taking the expected value, 
 
 \begin{align*}
 \mathrm{E}\left[R_{i,j}(w)\right]
-= n(w)\mathrm{prev}(w)p_i(w)p_j(w)\theta.
+= n(w) \, \mathrm{prev}(w) \, p_i(w) \, p_j(w) \, \theta.
 \end{align*}
 
-However, we still have not considered the possibility that our method will classify non-recombinant sequences as recombinant. The above $R_{i,j}(w)$ is only comprised of true positive cases, but there may also be times when a non-recombinant sequence is classified as a recombinant. 
+However, we still have not considered the possibility that our method will classify non-recombinant sequences as recombinant. The above $R_{i,j}(w)$ is only comprised of true positive cases, but our method can also misclassify non-recombinant sequences as $i\text{--}j$ recombinants.
 
 To account for this, we define,
 
@@ -497,7 +484,7 @@ To account for this, we define,
 
 which is the false positive rate.
 
-To simplify our derivations, we assume that $Y(w) = n(w) - \sum_{i<j} X_{i,j}(w)$ represents the number of true non-recombinant sequences tested in $w$. Although this assumption does not hold when $\gamma_{i,j}(w) < 1$ for some $i<j$ (when not all sequences from individuals co-infected by $i$ and $j$ are $i\text{--}j$ recombinants), it is still reasonable because $n(w)$ is typically much larger than $\sum_{i<j} X_{i,j}$ (due to SARS-CoV-2 prevalence being low). This means that $Y(w) = n(w) - \sum_{i<j} X_{i,j}(w) \approx n(w) - \sum_{i<j} \gamma_{i,j}(w) X_{i,j}(w)$, with the expression on the right-hand side representing the correct number of non-recombinant sequences tested in $w$. 
+To simplify our derivations, we assume that $Y(w) = n(w) - \sum_{i<j} X_{i,j}(w)$ represents the number of true non-recombinant sequences tested in $w$. Although this assumption does not hold when $\gamma_{i,j}(w) < 1$ for some $i<j$ (when not all sequences from individuals co-infected by $i$ and $j$ are $i\text{--}j$ recombinants), it is still reasonable because $n(w)$ is typically much larger than $\sum_{i<j} X_{i,j}$. This means that $Y(w) = n(w) - \sum_{i<j} X_{i,j}(w) \approx n(w) - \sum_{i<j} \gamma_{i,j}(w) X_{i,j}(w)$, with $n(w) - \sum_{i<j} \gamma_{i,j}(w) X_{i,j}(w)$ representing the correct number of non-recombinant sequences tested in $w$. 
 
 Then, denoting the set of sequences incorrectly classified as recombinants as $R^{FP}(w)$, we have that,
 
@@ -505,7 +492,7 @@ Then, denoting the set of sequences incorrectly classified as recombinants as $R
 R^{FP}(w)\mid Y(w)\sim\mathrm{Binomial}\left(Y(w),\phi\right).
 \end{align*}
 
-Again, taking the expectation and using the tower rule,
+Taking the expectation and using the tower rule,
 
 \begin{align*}
 \mathrm{E}\left[R^{FP}(w)\right]
@@ -527,7 +514,7 @@ Thus,
 &= \phi + \left(\theta-\phi\right)\mathrm{prev}(w)\sum_{i<j}p_i(w)p_j(w).
 \end{align*}
 
-We next want to estimate $\theta$ and $\phi$. Recall that $n(w)$ is known. We obtain our estimate of SARS-CoV-2 prevalence within window $w$, $\widehat{\text{prev}}(w)$, by averaging ONS daily SARS-CoV-2 prevalence estimates within window $w$. We obtain estimates for our lineage proportions, $\hat{p}_i(w)$ and $\hat{p}_j(w)$, by taking the number of sequences that belong to lineage $i$ and $j$ respectively in window $w$, and dividing this by the total number of sequences in window $w$. 
+We next want to estimate $\theta$ and $\phi$. Recall that $n(w)$ is known. We obtain our estimate of SARS-CoV-2 prevalence within window $w$, $\widehat{\text{prev}}(w)$, by averaging daily ONS SARS-CoV-2 prevalence estimates within window $w$. We obtain estimates for our lineage proportions, $\hat{p}_i(w)$ and $\hat{p}_j(w)$, by taking the number of sequences that belong to lineage $i$ and $j$ respectively in window $w$, and dividing this by the total number of sequences in window $w$. 
 
 Let $x_w = \widehat{\text{prev}}(w)\sum_{i<j}\hat p_i(w) \hat p_j(w)$ and then equate $\mathrm{E}\left[\frac{R^{\mathrm{total}}(w)}{n(w)}\right]$ with $\frac{R^{\mathrm{total}}(w)}{n(w)}$, which is the estimated recombinant proportion in $w$. Now we have,
 
@@ -547,6 +534,7 @@ Finally, we can use these estimates to obtain an estimate for the expected recom
 
 In our results section, we compare this estimate with the number of detected recombinants that have $i$ and $j$ as parental lineages. Because we do not allocate false positives across lineage pairs, $\hat{\mathrm{E}}[R_{i,j}]$ represents a true positive expectation, whereas the observed counts may include false positives. Thus, it is reasonable to expect that the observed count of $i\text{--}j$ recombinants will exceed $\hat{\mathrm{E}}[R_{i,j}]$. We are instead interested in the correlation between these two quantities across parental lineage pairs $i<j$.
 
+% It is also important to note that even though $\hat \theta$ depends on the estimated recombinant proportion across test windows, 
 % This is the expected detected sequence count for $A\text{--}B$ recombinants in window $w$. For obtaining expected counts across the study period, we sum over test windows. Let $\mathcal{W}$ be our set of 7-day test windows. Then,
 % \begin{align*}
 % \mathrm{E}\left[R_{A,B}\right]
@@ -665,13 +653,13 @@ In our results section, we compare this estimate with the number of detected rec
 
 To evaluate the performance of our method for detecting recombinant SARS-CoV-2 sequences, we conducted a series of assessments based on the predicted local Pango lineage ancestry of synthetic SARS-CoV-2 sequences. The process used to generate synthetic sequences are described in Section \ref{sec:sim_recomb}.
 
-First, we estimated the sensitivity and specificity of our method for detecting recombinant sequences. We classified a test sequence as a recombinant if the inferred local Pango lineage ancestry contained at least one lineage transition. Our method achieved a sensitivity of 0.801 (95\% CI: [0.775, 0.825]) and a specificity of 0.989 (95\% CI: [0.980, 0.994]). 
+First, we estimated the sensitivity and specificity of our method for classifying a sequence as a recombinant or non-recombinant. We classified a test sequence as a recombinant if the predicted local Pango lineage ancestry contained at least one lineage transition. Our method achieved a sensitivity of 0.801 (95\% CI: [0.775, 0.825]) and a specificity of 0.989 (95\% CI: [0.980, 0.994]). 
 
-To assess the accuracy of local ancestry inference, we computed the mean position-by-position accuracy separately for recombinant and control sequences. On average, the inferred Pango lineage matched the true parental lineage at 86.9\% (95\% CI: [85.9\%, 87.9\%]) of genomic positions for recombinant sequences. Among control sequences, mean position-by-position accuracy was 99.2\% (95\% CI: [98.6\%, 99.7\%]).
+To assess the accuracy of predicted local Pango lineage ancestries, we computed the mean position-by-position accuracy separately for recombinant and control sequences. On average, the inferred Pango lineage matched the true parental lineage at 86.9\% (95\% CI: [85.9\%, 87.9\%]) of genomic positions for recombinant sequences. Among control sequences, mean position-by-position accuracy was 99.2\% (95\% CI: [98.6\%, 99.7\%]).
 
-We further evaluated how often the true parental lineage(s) were recovered for recombinant and control sequences. In 69.9\% (95\% CI: [67.0\%, 72.7\%]) of synthetic recombinant sequences, we detected two parental lineages that matched the true parental lineage pair. There was an overlap between the true and detected lineages in 100\% (95\% CI: [99.6\%, 100\%]) of synthetic recombinant sequences. In 98.4\% (95\% CI: [97.4\%, 99.1\%]) of synthetic control sequences, we detected a single parental lineage that matched the true parental lineage, and there was an overlap between the true and detected lineages in 99.4\% (95\% CI: [98.7\%, 99.8\%]) of synthetic control sequences.
+We further evaluated how often the true parental  lineage pair or lineage was recovered for recombinant and control sequences respectively. In 69.9\% (95\% CI: [67.0\%, 72.7\%]) of synthetic recombinant sequences, we detected two parental lineages that matched the true parental lineage pair. There was an overlap between the true and detected lineages in 100\% (95\% CI: [99.6\%, 100\%]) of synthetic recombinant sequences. In 98.4\% (95\% CI: [97.4\%, 99.1\%]) of synthetic control sequences, we detected a single parental lineage that matched the true parental lineage, and there was an overlap between the true and detected lineages in 99.4\% (95\% CI: [98.7\%, 99.8\%]) of synthetic control sequences.
 
-We next looked at how often the true parental lineages were recovered for recombinant sequences, stratified by the true parental lineage pair. In Table \ref{tab:perfect_match_filtered}, we present the proportion of recombinant sequences for which we detected the true parental lineage pair, stratified by true parental pairs and restricted to pairs with at least ten synthetic recombinants.
+In Table \ref{tab:perfect_match_filtered}, we report how often the true parental lineage pair was recovered for recombinant sequences, stratifying by the true parental lineage pair. We counted the number of times we detected two parental lineages that matched the true parental lineage pair, for recombinants with each true parental lineage pair. We restricted this analysis to true parental lineage pairs with at least ten synthetic recombinants.
 
 \begin{table}[H]
 \centering
@@ -706,7 +694,7 @@ We next looked at how often the true parental lineages were recovered for recomb
 (BE.1.1, BQ.1.1) & 128 & 24 & 0.188 & 0.124 & 0.266 \\
 \bottomrule
 \end{tabular}
-\caption{Detection of parental lineages for recombinant sequences, stratified by true parental lineage pair. We report 95\% exact binomial confidence intervals for the proportion of sequences for which we detected the true parental lineage pair.}\label{tab:perfect_match_filtered}
+\caption{Detection of parental lineages for recombinant sequences, stratified by true parental lineage pair. We report 95\% exact binomial confidence intervals for the proportion of sequences for which we detected two parental lineages that matched the true parental lineage pair.}\label{tab:perfect_match_filtered}
 \end{table}
 % \begin{table}[H]
 % \centering
@@ -768,22 +756,24 @@ We next looked at how often the true parental lineages were recovered for recomb
 
 % Note that it is possible in the real-data analysis to obtain an estimate of the prevalence of recombinants based on the estimated sensitivity and specificity of the model, but we did not attempt this, because we were not sure if the estimated sensitivity and specificity in the simulation would generalize well to the real data. 
 
-We then evaluated whether the sensitivity of our method to detect synthetic recombinant sequences (regardless of whether we detect the correct parental lineage pair) is associated with the Hamming distance between the two parental sequences of each synthetic recombinant sequence. Using logistic regression, we found a positive association between the parental Hamming distance and the sensitivity ($p < 2 \times 10^{-16}$ using a two-sided Wald test). We estimate that for two recombinant sequences that differ by one unit in their parental Hamming distances, the odds of detection is 1.11 times higher in the recombinant sequence with the higher parental Hamming distance (95\% CI: [1.09, 1.13]). The relationship between the parental Hamming distance and detection probability is shown in Figure~\ref{fig:sens_vs_edits}, which displays the fitted logistic regression and the associated 95\% pointwise confidence band.
+We then evaluated whether the sensitivity to detect synthetic recombinant sequences was associated with the Hamming distance between the two parental sequences of each synthetic recombinant sequence. Using logistic regression, we found a positive association between the parental Hamming distance and the sensitivity ($p < 2 \times 10^{-16}$ using a two-sided Wald test). We estimate that for two recombinant sequences that differ by one unit in their parental Hamming distances, the odds of detection is 1.11 times higher in the recombinant sequence with the higher parental Hamming distance (95\% CI: [1.09, 1.13]). The relationship between the parental Hamming distance and detection probability is shown in Figure~\ref{fig:sens_vs_edits}, which displays the fitted logistic regression and the associated 95\% pointwise confidence band.
+
+% I'm a bit confused by this 1.11 vs the figure. In the figure you go from 25% detection rate to 75% detection rate with 25 Hamming units. But 1.11^25 = 13.5 rather than ~2. Maybe I'm just missing something?
 
 \begin{figure}[H]
   \centering
-  \includegraphics[width=0.8\textwidth]{figures/hmm/sens_vs_parentdist_ggplot.png}
+  \includegraphics[width=0.9\textwidth]{figures/hmm/sens_vs_parentdist_ggplot.png}
   \caption[Sensitivity dist]{
-    Sensitivity to detect recombinants as a function of the Hamming distance between their two parental sequences. The black line represents the logistic regression fit. The grey band represents pointwise Wald 95\% CIs. 
+    Sensitivity to detect recombinants as a function of the Hamming distance between their two parental sequences. Each point represents a synthetic recombinant sequence, with $y = 1$ indicating that it was classified as a recombinant using our method. $y$ values are jittered vertically to avoid overplotting. The black line represents the logistic regression fit. The grey band represents pointwise 95\% CIs. 
+    % You might consider very slightly jittering individual points on the y. You have opacity, but there's still a lot of overlap between points that make's it hard to see the underlying data.
+    % You might consider restricting the x axis to be from 0 to 75. The right portion of the plot is basically empty.
   }
   \label{fig:sens_vs_edits}
 \end{figure}
 
-To assess breakpoint resolution, we evaluated the accuracy of inferred breakpoint positions for recombinant sequences. We define the breakpoint distance as the absolute difference in genomic position between true and inferred recombination breakpoints. 
+We next assessed the accuracy of predicted breakpoint positions. Among sequences with one breakpoint (that had one predicted breakpoint), the mean breakpoint distance was 1238 nucleotides (95\% CI: [1108, 1386]). For sequences with two breakpoints (that had two predicted breakpoints), the mean breakpoint distance was 1007 nucleotides (95\% CI: [901, 1125]). For synthetic recombinants with two true breakpoints, we ordered true and detected breakpoint positions 5' to 3', paired them positionally (first with first, second with second), and calculated the distance between each pair. We then averaged the paired breakpoint distances across all sequences. 
 
-Among sequences with one breakpoint (that had one inferred breakpoint), the mean breakpoint distance was 1,238 nucleotides (95\% CI: [1,108, 1,386]). For sequences with two breakpoints (that had two inferred breakpoints), the mean breakpoint distance was 1,007 nucleotides (95\% CI: [901, 1,125]). For synthetic recombinants with two true breakpoints, we ordered true and detected breakpoints 5' to 3', paired them positionally (1st with 1st, 2nd with 2nd), and calculated the distance between each pair. We then took the average across all paired distances. 
-
-It is difficult to assess breakpoint resolution for a recombinant sequence whose inferred breakpoint count does not match its true breakpoint count. A confusion matrix of inferred and true breakpoint counts for recombinant sequences is shown in Table \ref{tab:bp_confusion}.
+It is difficult to assess the accuracy of predicted breakpoint positions for a recombinant sequence whose predicted breakpoint count does not match its true breakpoint count. A confusion matrix of predicted and true breakpoint counts for recombinant sequences is shown in Table \ref{tab:bp_confusion}.
 
 \begin{table}[htbp]
 \centering
@@ -791,67 +781,67 @@ It is difficult to assess breakpoint resolution for a recombinant sequence whose
 \begin{tabular}{@{}lrrrr@{}}
 \toprule
 \multicolumn{1}{c}{\textbf{True breakpoints}} &
-\multicolumn{4}{c}{\textbf{Inferred breakpoints}} \\ \cmidrule(l){2-5}
+\multicolumn{4}{c}{\textbf{Predicted breakpoints}} \\ \cmidrule(l){2-5}
  & 0 & 1 & 2 & 3 \\ \midrule
 1 & 77 & 417 &   6 &  0 \\
 2 & 122 &  119 & 256 &  3 \\ \bottomrule
 \end{tabular}
-\caption[Confusion matrix of inferred versus true breakpoint counts]{Confusion matrix of inferred versus true breakpoint counts.}
+\caption[Confusion matrix of predicted versus true breakpoint counts]{Confusion matrix of predicted versus true breakpoint counts.}
 \label{tab:bp_confusion}
 \end{table}
 
-\subsection{Real data analysis} 
+\subsection{Empirical data analysis} 
 
-We used our method to predict the local Pango lineage ancestry for 440,307 SARS-CoV-2 sequences collected in England between September 2020 and March 2024. These sequences were sampled across 185 test windows that each consisted of a 7-day period with no gaps between successive windows. Of the 440,307 sequences, 7,619 were detected to be recombinant sequences using our method, which corresponds to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of the sequences. 
+We used our method to predict the local Pango lineage ancestry for 440,307 SARS-CoV-2 sequences collected in England between September 2020 and March 2024. These sequences were sampled across 185 test windows that each consisted of a 7-day period with no gaps between successive windows. Of the 440,307 sequences, 7619 were detected to be recombinant sequences using our method, which corresponds to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of the sequences. 
 
-In Figure \ref{fig:freq2}, we plot the estimated recombinant proportion (the proportion of tested sequences inferred to be recombinant) in each test window and the SARS-CoV-2 prevalence estimates from the ONS survey averaged within each test window. We see a positive trend in the estimated recombinant proportion over time. Our confidence intervals widen in later windows because fewer sequences are available for analysis.
+In Figure \ref{fig:freq2}, we plot the estimated recombinant proportion (the proportion of tested sequences predicted to be recombinant) in each test window and the SARS-CoV-2 prevalence estimates from the UK Office for National Statistics (ONS) Coronavirus Infection Survey \cite{pouwels_community_2021}, averaged within each test window. Shaded bands mark notable periods when ONS prevalence substantially exceeded the estimated recombinant proportion. We see a positive trend in the estimated recombinant proportion over time. Our confidence intervals widen in later windows because fewer sequences are available for analysis.
 
 % Our method is only able to detect recombinants whose parents belong to different Pango lineages, and the number of Pango lineages is higher in later test windows. Thus, the proportion of recombinants that are detectable using our method is likely higher in later test windows. 
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/hmm/line_plot.png}
-\caption[Estimated recombinant proportion and ONS prevalence estimates]{Estimated recombinant proportion and ONS prevalence estimates across test windows. The solid line shows the estimated recombinant proportion in each test window. The shaded band indicates 95\% exact binomial confidence intervals for the recombinant proportion in each test window. The dashed line shows daily SARS-CoV-2 prevalence estimates from the ONS survey averaged within each test window.}
+\caption[Estimated recombinant proportion and ONS prevalence estimates]{Estimated recombinant proportion and ONS prevalence estimates averaged within each test window. The solid line shows the estimated recombinant proportion in each test window. The shaded band indicates 95\% exact binomial confidence intervals for the recombinant proportion in each test window. The dashed line shows daily SARS-CoV-2 prevalence estimates from the ONS survey averaged within each test window. Shaded bands mark periods when ONS prevalence substantially exceeded the estimated recombinant proportion.}
 \label{fig:freq2}
 \end{figure}
 
-The estimated recombinant proportion was positively associated with SARS-CoV-2 prevalence estimates from the ONS survey, averaged within each test window ($p=0.0436$ using a two-sided Pearson correlation test). Figure \ref{fig:scatter} shows the estimated recombinant proportion against the window-averaged prevalence estimates. We label windows with averaged prevalence estimates $>6\%$ with their midpoint date. High prevalence windows correspond to late 2021 and early 2022, when ONS prevalence estimates greatly exceeded the estimated recombinant proportion (see Figure \ref{fig:freq2}). ONS prevalence estimates were available for the first 132 of 185 test windows (until the window ending March 19, 2023). These windows were used to compute the Pearson correlation and $p$-value in Figure \ref{fig:scatter}.
+The estimated recombinant proportion was positively associated with ONS prevalence averaged within each test window ($p=0.0436$ using a two-sided Pearson correlation test). The Pearson correlation was $0.176$. Figure \ref{fig:scatter} shows the estimated recombinant proportion against the window-averaged ONS prevalence. Windows within the shaded bands in Figure \ref{fig:freq2} are shown in matching colors. High prevalence windows correspond to late 2021 and early 2022, when ONS prevalence greatly exceeded the estimated recombinant proportion (see Figure \ref{fig:freq2}). ONS prevalence was available for the first 132 of 185 test windows (until the window ending March 19, 2023). These windows were used to compute the Pearson correlation and $p$-value in Figure \ref{fig:scatter}.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.8\textwidth]{figures/hmm/scatter_prop_vs_ons.png}
-\caption[Scatter: recombinant proportion vs ONS prevalence]{Scatterplot of estimated recombinant proportion against ONS prevalence estimates across test windows. Each point represents one test window. The diagonal line is the identity $y=x$. Windows with averaged prevalence estimates above 6\% are annotated with their midpoint date. The reported $p$-value ($p=0.0436$) is from a two-sided Pearson correlation test.}
+\caption[Scatter: recombinant proportion vs ONS prevalence]{Scatterplot of estimated recombinant proportion against ONS prevalence estimates averaged within each test window. Each point represents one test window. Windows within the shaded bands in Figure \ref{fig:freq2} are shown in matching colors. The diagonal line is the identity $y=x$. The reported $p$-value ($p=0.0436$) is from a two-sided Pearson correlation test.}
 \label{fig:scatter}
 \end{figure}
 
-Of the 7,619 detected recombinants, 7,063 had exactly two parental lineages in the inferred local Pango lineage ancestry, corresponding to 92.7\% (95\% CI: [92.1\%, 93.3\%]) of detected recombinants. We counted the number of detected recombinants stratified by unique parental lineage pairs. For each parental lineage pair $i<j$, we compared the number of detected $i\text{--}j$ recombinants  (excluding cases in which one of the parental lineages was in the ``other" category) to $\hat{\mathrm{E}}[R_{i,j}]$ derived in Section \ref{sec:expected}, which represents our estimate of the expected number of true positive $i\text{--}j$ recombinants detected across all test windows. For brevity, we henceforth refer to $\hat{\mathrm{E}}[R_{i,j}]$ as the expected TP (true positive) count for $i\text{--}j$ recombinants.
+Among 7619 detected recombinants, 7063 had exactly two parental lineages in their predicted local Pango lineage ancestry, corresponding to 92.7\% (95\% CI: [92.1\%, 93.3\%]) of detected recombinants. We counted the number of detected recombinants stratified by unique parental lineage pairs. For each parental lineage pair $i<j$, we compared the number of detected $i\text{--}j$ recombinants  (excluding cases in which one of the parental lineages was in the ``other" category) to $\hat{\mathrm{E}}[R_{i,j}]$ derived in Section \ref{sec:expected}, which represents our estimate of the expected number of true positive $i\text{--}j$ recombinants detected across all test windows. For brevity, we henceforth refer to $\hat{\mathrm{E}}[R_{i,j}]$ as the expected true positive (TP) count for $i\text{--}j$ recombinants.
 
-ONS SARS-CoV-2 prevalence estimates are used to obtain expected TP counts for each lineage pair $i<j$. For comparability with these counts, detected recombinant counts are also restricted to windows with available ONS prevalence estimates (until the window ending March 19, 2023). For reference, test windows before March 19, 2023 contained 387,054 sequences, with 5,006 sequences detected as recombinant with exactly two parental lineages in their inferred local Pango lineage ancestry (excluding cases in which one of the parental lineages were in the ``other" category, see Section \ref{subsec:data}). 
+ONS SARS-CoV-2 prevalence estimates are used to obtain expected TP counts for each lineage pair $i<j$. For comparability with these counts, detected recombinant counts are also restricted to windows with available ONS prevalence estimates (until the window ending March 19, 2023). For reference, test windows before March 19, 2023 contained 387,054 sequences, with 5006 sequences detected as recombinant with exactly two parental lineages in their predicted local Pango lineage ancestry (excluding cases in which one of the parental lineages were in the ``other'' category). 
 
 % Of these 5,650 sequences, 5,006 sequences did not have a parental lineage in the ``other" category. 
 
-Across parental lineage pairs $i<j$, the number of detected $i\text{--}j$ recombinants was positively associated with their expected TP counts ($p = 8.88 \times 10^{-22}$ using a two-sided Pearson correlation test). We visualized this association in Figure \ref{fig:scatter2}. 
+Across parental lineage pairs $i<j$, the number of detected $i\text{--}j$ recombinants was positively associated with the expected TP count ($p = 8.88 \times 10^{-22}$ using a two-sided Pearson correlation test). We visualized this association in Figure \ref{fig:scatter2}. 
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=0.8\textwidth]{figures/hmm/pairs_scatter_detected_vs_expected.png}
-\caption[Scatter2]{Scatterplot of detected recombinant counts against expected TP counts ($\hat{\mathrm{E}}[R_{i,j}]$). Each point represents a parental lineage pair. The blue line shows the least squares fit with the grey band indicating 95\% confidence intervals for the fitted mean. The black line is the identity $y = x$. We label the 20 parental lineage pairs with the highest absolute residual values from ordinary least squares.}
+\caption[Scatter2]{Scatterplot of detected recombinant counts against expected TP counts ($\hat{\mathrm{E}}[R_{i,j}]$). Each point represents a parental lineage pair. The blue line shows the least squares fit with the grey band indicating 95\% confidence intervals for the mean response. The black line represents the identity $y = x$. We label the 20 parental lineage pairs with the highest absolute residual values from ordinary least squares. We color under-represented lineage pairs.}
 \label{fig:scatter2}
 \end{figure}
 
 Because expected TP counts do not include contributions from false positives, we generally expect the number of detected recombinants to be larger across parental lineage pairs $i < j$. We observe this in Figure \ref{fig:scatter2} (most points fall above the identity line $y = x$). 
 
-Some parental lineage pairs are markedly over- or under-represented relative to the overall trend between detected counts and expected TP counts. To identify these parental lineage pairs, we fit a least squares line with the detected count as the response and the expected TP count as the predictor. We identified the 20 parental lineage pairs with the highest absolute residual values and annotated them in Figure \ref{fig:scatter2}. 
+Several parental lineage pairs deviate markedly from the overall relationship between detected counts and expected TP counts. To identify these parental lineage pairs, we fit a least squares line with the detected count as the response and the expected TP count as the predictor. We identified the 20 parental lineage pairs with the highest absolute residual values and annotated them in Figure \ref{fig:scatter2}. 
 
 % We identified the ten parental lineage pairs with the highest absolute standardized residuals, which were B.1--B.1.1, BA.2--BA.5.1, AY.5--B.1.617.2, AY.4--AY.4.2, AY.4--B.1.617.2, BA.1--BA.1.1, BA.2--BA.4, BA.1--BA.1.17.2, BA.5.2--BA.5.2.1, and BE.1.1--BQ.1.1 in descending order. These pairs are annotated in Figure \ref{fig:scatter2}. 
 
-Six of these parental lineage pairs had negative residual values. We refer to these parental lineage pairs as under-represented lineage pairs. Recombinants with these parental lineage pairs (except for BA.1.1--BA.2) had lower detected counts than their expected TP counts (these recombinants fall below the identity line $y = x$ in Figure \ref{fig:scatter2}). These findings should be interpreted with caution. The apparent under-representation may be attributable to uncertainty in expected TP counts or sampling variability in detected counts. Alternatively, this may suggest recombinants with these parental lineage pairs occur less frequently in the population than predicted or we have lower sensitivity to detect these recombinants (see Section \ref{sec:expected}). 
+Six of these parental lineage pairs had negative residual values. We refer to these parental lineage pairs as under-represented lineage pairs. Recombinants with these parental lineage pairs (except for BA.1.1--BA.2) had lower detected counts than their expected TP counts (these recombinants fall below the identity line $y = x$ in Figure \ref{fig:scatter2}). This should be interpreted with caution. This apparent under-representation may be attributable to uncertainty in expected TP counts or sampling variability in detected counts. Alternatively, this may suggest recombinants with these parental lineage pairs occur less frequently in the population than expected under our co-infection model or we have lower sensitivity to detect these recombinants compared to our overall sensitivity (see Section \ref{sec:expected}). 
 
 We likely have low sensitivity to detect BA.1--BA.1.1, BA.1--BA.1.17.2, and BA.1.1--BA.1.17.2 recombinants, given that only a few mutations separate these lineage pairs. Using consensus sequences and ignoring non-standard nucleotides, pairwise Hamming distances were one for BA.1--BA.1.1, three for BA.1--BA.1.17.2, and four for BA.1.1--BA.1.17.2. Recall that in our simulation study, the sensitivity of our method was low when parental sequences only differed by a few mutations (see Figure \ref{fig:sens_vs_edits}).
 
-Pairwise Hamming distances were relatively high for BQ.1.1--CH.1.1, BA.1.1--BA.2, and CH.1.1--XBB.1.5. However, the sensitivity to detect recombinants with these parental lineage pairs may still be low, depending on where recombinantion breakpoints occur (e.g., the resulting recombinant sequence may only have a few mutations relative to one of its parents, if most of its genome is inherited from this parent). Furthermore, these parental lineage pairs lie close to the identity line $y = x$ (slightly above the line for BA.1.1--BA.2). Thus, their under-representation may be explained by uncertainty in expected TP counts or detected counts.
+Pairwise Hamming distances were relatively high for BQ.1.1--CH.1.1 (39 nucleotides), BA.1.1--BA.2 (41 nucleotides), and CH.1.1--XBB.1.5 (34 nucleotides). However, the sensitivity to detect recombinants with these parental lineage pairs may still be low, depending on where recombinantion breakpoints occur. The resulting recombinant sequence may only have a few mutations relative to one of its parents, if most of its genome is inherited from this parent. Furthermore, these parental lineage pairs lie close to the identity line $y = x$ (slightly above the line for BA.1.1--BA.2). Thus, their under-representation may be explained by uncertainty in expected TP counts or sampling variability in detected counts.
 
-Interestingly, every under-represented parental lineage pair co-circulated in England during two intervals, late 2021 to early 2022 (BA.1--BA.1.1, BA.1--BA.1.17.2, BA.1.1--BA.1.17.2, BA.1.1--BA.2) and late 2022 to early 2023 (BQ.1.1--CH.1.1, CH.1.1--XBB.1.5), precisely when the estimated recombinant proportion was low relative to ONS prevalence (see Figure \ref{fig:freq2}). For under-represented parental lineage pairs, Figure \ref{fig:freq_pair} shows the pairwise product of their lineage frequencies across test windows. Recombinants with these parental lineage pairs had low detected counts during these two periods, indicating that these under-represented lineage pairs contributed to the lower frequency of recombinants detected during this period. However, further work is needed to determine the cause of this apparent under-representation. 
+Interestingly, every under-represented parental lineage pair co-circulated in England during two intervals, late 2021 to early 2022 (BA.1--BA.1.1, BA.1--BA.1.17.2, BA.1.1--BA.1.17.2, BA.1.1--BA.2) and late 2022 to early 2023 (BQ.1.1--CH.1.1, CH.1.1--XBB.1.5), when the estimated recombinant proportion was low relative to ONS prevalence (see Figure \ref{fig:freq2}). For under-represented parental lineage pairs, Figure \ref{fig:freq_pair} shows the pairwise product of their lineage frequencies across test windows. Recombinants with these parental lineage pairs had relatively few detected counts during these two periods, indicating that these under-represented lineage pairs contributed to the lower frequency of recombinants detected during this period. However, further work is needed to determine the cause of this apparent under-representation. 
 
 % Figure \ref{fig:exp_traj} shows expected TP counts across test windows for each under-represented lineage pair. These expected counts scale with the product of lineage frequencies $\hat p_i(w) \hat p_j(w)$ (see Section \ref{sec:expected}), so expected counts for parental lineage pairs are elevated during periods of co-circulation between these pairs.
 
@@ -862,9 +852,9 @@ Interestingly, every under-represented parental lineage pair co-circulated in En
 \label{fig:freq_pair}
 \end{figure}
 
-Out of the 20 flagged recombinant pairs with the highest residual values (see Figure \ref{fig:scatter2}), 14 parental lineage pairs had positive residual values, indicating that recombinants with these lineage pairs were detected more frequently relative to the overall trend between detected counts and expected TP counts. It is difficult to pinpoint whether this reflects the population frequency of recombinant sequences with these parental lineage pairs, higher detection sensitivity, disproportionate false positive assignments to these parental lineage pairs, or some combination of these factors.
+Of the 20 annotated recombinant pairs with the highest residual values (see Figure \ref{fig:scatter2}), 14 parental lineage pairs had positive residual values, indicating that recombinants with these lineage pairs were detected more frequently relative to the overall trend between detected counts and expected TP counts. It is difficult to pinpoint whether this reflects the population frequency of recombinant sequences with these parental lineage pairs, higher detection sensitivity, disproportionate false positive assignments to these parental lineage pairs, or some combination of these factors.
 
-In the process of estimating expected TP counts, we estimated the detection factor $\theta$ and false positive rate $\phi$ to be 0.557 (95\% CI: [0.309, 0.804]) and 0.011 (95\% CI: [0.009, 0.013]) respectively. Recall that $\theta$ equals sensitivity times the probability that a sample from a co-infected individual is a recombinant (see Section \ref{sec:expected}). Confidence intervals are Wald intervals from the linear regression described in Section \ref{sec:expected}, treating $x_w$ as fixed. Remarkably, our estimated false positive rate closely matches what we estimated in the simulation (see Section \ref{sec:sim_res}).
+In the process of estimating expected TP counts, we estimated the detection factor $\theta$ and false positive rate $\phi$ to be 0.557 (95\% CI: [0.309, 0.804]) and 0.011 (95\% CI: [0.009, 0.013]) respectively. Recall that $\theta$ equals sensitivity times the probability that a sample from a co-infected individual is a recombinant (see Section \ref{sec:expected}). Confidence intervals are Wald intervals from the linear regression model described in Section \ref{sec:expected}, treating $x_w$ as fixed. Remarkably, our estimated false positive rate closely matches what we estimated in the simulation (see Section \ref{sec:sim_res}).
 
 % Taking detected recombinants with two predicted parental lineages, we plotted their counts and proportions by parental lineage combination across all test windows in Figure \ref{fig:pair_time}. In this figure, we color only the top 18 Pango lineages by proportion summed across test windows to reduce visual clutter. All remaining lineages are shown in grey. Recombinants with at least one parent from these grey lineages are also represented in grey, rather than with a combination of two colors.
 
@@ -875,7 +865,7 @@ In the process of estimating expected TP counts, we estimated the detection fact
 % \label{fig:pair_time}
 % \end{figure}
 
-Across 7,619 detected recombinants, we detected 9,105 recombination breakpoints. 6,324 (83.0\%) had 1 breakpoint, 1,146 (15.0\%) had 2, 118 (1.5\%) had 3, 23 (0.3\%) had 4, and 8 (0.1\%) had $\geq 5$. In Figure \ref{fig:hist}, we plot the genomic position of each detected breakpoint. We observed localized clusters of recombination breakpoints within Spike and enrichment of breakpoints at the ends of the genome.
+Across 7619 detected recombinants, we inferred 9105 recombination breakpoints. 6324 (83.0\%) had one breakpoint, 1146 (15.0\%) had two, 118 (1.5\%) had three, 23 (0.3\%) had four, and 8 (0.1\%) had five or above. In Figure \ref{fig:hist}, we plot the genomic position of each detected breakpoint. We observed a recombination hotspot within spike, and an enrichment of breakpoints at the 3' end of the genome corresponding to accessory proteins. However, we do not account for potential variation in breakpoint detection sensitivity across positions.
 
 \begin{figure}[H]
 \centering
@@ -884,42 +874,47 @@ Across 7,619 detected recombinants, we detected 9,105 recombination breakpoints.
 \label{fig:hist}
 \end{figure}
 
-We also observed an enrichment of recombination breakpoints in intergenic regions. Although intergenic regions comprise only around 0.5\% of the genome, 1.1\% of all breakpoints were localized in these regions (99/8,767). When calculating the proportion of detected breakpoints in intergenic regions, we excluded 338 breakpoints mapping to the ends of the genome, specifically from the 5' end to ORF1ab and from ORF10 to the 3' end. Using a two-sided binomial test, we found this enrichment to be highly statistically significant ($p = 1.64\times 10^{12}$).
+We also observed enrichment of recombination breakpoints in intergenic regions. Gene boundaries were defined using the Wuhan-Hu-1 reference genome (GenBank: MN908947) \cite{wu_new_2020,benson_genbank_2013}. Although intergenic regions comprise only around 0.5\% of the genome, 1.1\% of all detected breakpoints were localized in these regions (90/8767). When calculating the proportion of detected breakpoints in intergenic regions, we excluded 339 breakpoints mapping to the ends of the genome, specifically from the 5' end to ORF1ab and from ORF10 to the 3' end. Using a two-sided binomial test, we found this enrichment to be highly statistically significant ($p = 1.63\times 10^{-9}$).
 
 \section{Discussion}
 
-Genetic surveillance of recombinant SARS-CoV-2 sequences is important, given that mutations from each of the parental lineages can provide a growth advantage to the recombinant sequence. In this study, we developed a HMM to detect the local Pango lineage ancestry of query SARS-CoV-2 sequences based on  nucleotide frequencies calculated using a reference set of recent sequences. Our method does not depend on an existing phylogeny nor any user-defined parameters such as the mutation rate or recombination rate. Instead, we use maximum likelihood to estimate the lineage-transition probability between consecutive sites, and the probability of observing alleles absent from the lineage providing ancestry at each site, which accounts for mutations on the recombinant sequence. 
+Genomic surveillance of recombinant SARS-CoV-2 sequences is important, given that mutations from each parental lineage can provide a growth advantage to the recombinant sequence. In this study, we developed a HMM to detect the local Pango lineage ancestry of query SARS-CoV-2 sequences based on lineage-specific nucleotide frequencies calculated using a reference set of recent sequences. Our method does not depend on an existing phylogeny or any user-defined parameters such as the mutation rate or recombination rate. Instead, we use maximum likelihood to estimate the lineage-transition probability between consecutive sites, and the probability of observing alleles absent from the parental lineage at each site, which accounts for mutations on the recombinant sequence. 
 
-We validated our method using synthetic sequences generated from real SARS-CoV-2 genomes. In our simulation, our method achieved a sensitivity of 0.801 (95\% CI: [0.775, 0.825]) for recombinant sequences and a specificity of 0.989 (95\% CI: [0.980, 0.994]) for non-recombinant sequences. In 69.9\% (95\% CI: [67.0\%, 72.7\%]) of synthetic recombinant sequences, we detected two parental lineages that matched the true parental lineage pair. In 98.4\% (95\% CI: [97.4\%, 99.1\%]) of synthetic control sequences, we detected a single parental lineage that matched the true parental lineage. We found the sensitivity of our method to be strongly positively associated with the number of mutations separating the parental sequences of the recombinant (see Figure \ref{fig:sens_vs_edits}). Finally, we estimated the mean distance between true and inferred breakpoints to be 1,238 nucleotides (95\% CI: [1,108, 1,386]) and 1,007 nucleotides (95\% CI: [901, 1,125]) for synthetic recombinants with one and two breakpoints respectively.
+We validated our method using synthetic sequences generated from real SARS-CoV-2 genomes. In our simulation, our method achieved a sensitivity of 0.801 (95\% CI: [0.775, 0.825]) for classifying recombinant sequences and a specificity of 0.989 (95\% CI: [0.980, 0.994]) for classifying non-recombinant sequences. In 69.9\% (95\% CI: [67.0\%, 72.7\%]) of synthetic recombinant sequences, we detected two parental lineages that matched the true parental lineage pair. In 98.4\% (95\% CI: [97.4\%, 99.1\%]) of synthetic control sequences, we detected a single parental lineage that matched the true parental lineage. We found the sensitivity of our method to be positively associated with the number of mutations separating the parental sequences of the recombinant (see Figure \ref{fig:sens_vs_edits}). Finally, we estimated the mean distance between true and inferred breakpoints to be 1238 nucleotides (95\% CI: [1108, 1386]) and 1007 nucleotides (95\% CI: [901, 1125]) for synthetic recombinants with one and two breakpoints respectively.
 
-Applying our model to real SARS-CoV-2 sequences collected in England between September 2020 and March 2024, we found 7,619 recombinant sequences across 440,307 sequences, which corresponds to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of sequences. These 440,307 sequences were sampled across 185 test windows, each window corresponding to a 7-day period with no gaps between successive windows. 
+Applying our model to real SARS-CoV-2 sequences collected in England between September 2020 and March 2024, we found 7619 recombinant sequences across 440,307 sequences, corresponding to 1.73\% (95\% CI: [1.69\%, 1.77\%]) of sequences. These 440,307 sequences were sampled across 185 test windows, each window corresponding to a 7-day period with no gaps between successive windows. 
 
-We hypothesized that across our test windows, the fraction of tested sequences detected as recombinant using our method would be positively associated with community SARS-CoV-2 prevalence, because higher prevalence raises co-infection opportunities, which should result in a higher rate of recombinant sequences in the population. There was a positive association between the estimated recombinant proportion in each test window and SARS-CoV-2 prevalence estimates from the ONS survey, averaged within each test window ($r = 0.176$, $p = 0.0436$ using a two-sided Pearson correlation test). 
+We hypothesized that across our test windows, the fraction of tested sequences detected as recombinant using our method would be positively associated with community SARS-CoV-2 prevalence, because higher prevalence raises co-infection opportunities, which should result in a higher rate of recombinant sequences in the population. There was a positive association between the estimated recombinant proportion in each test window and SARS-CoV-2 prevalence from the ONS survey, averaged within each test window ($r = 0.176$, $p = 0.0436$ using a two-sided Pearson correlation test). 
 
-We modeled the number of recombinants in our sample as a function of community SARS-CoV-2 prevalence to derive, for each parental lineage pair, the expected number of true positive recombinants across the 440,307 sequences analyzed (Section \ref{sec:expected}). This derivation relies on two key assumptions. First, we assume independent infections in our co-infection model, which means that the probability of co-infection by two lineages equals the product of their marginal prevalences. Second, we assume that the false positive rate and the detection factor (the product of sensitivity and the probability that a sequence from a co-infected individual is a recombinant) are constant across parental lineage pairs and test windows. Our second assumption ensures identifiability of the false positive rate and detection factor in our model. We estimated the false positive rate and detection factor to be 0.011 (95\% CI: [0.009, 0.013]) and 0.557 (95\% CI: [0.309, 0.804]) respectively for the real data analysis. Our estimated false positive rate closely matched the false positive rate estimated from the simulation study. 
+We next modeled the number of recombinants in our sample as a function of community SARS-CoV-2 prevalence to derive, for each parental lineage pair, the expected number of true positive recombinants across the 440,307 sequences analyzed (Section \ref{sec:expected}). For brevity, we refer to this as the expected true positive (TP) count for each parental lineage pair. This derivation relies on two key assumptions. First, we assume independent infections in our co-infection model, which means that the probability of co-infection by two lineages equals the product of their marginal prevalences. Second, we assume that the false positive rate and the detection factor (the product of sensitivity and the probability that a sequence from a co-infected individual is a recombinant) are constant across parental lineage pairs and test windows. Our second assumption ensures identifiability of the false positive rate and detection factor in our model. We estimated the false positive rate and detection factor to be 0.011 (95\% CI: [0.009, 0.013]) and 0.557 (95\% CI: [0.309, 0.804]) respectively for the real data analysis. Our estimated false positive rate closely matched the false positive rate in our simulation study. 
 
-We estimated the expected TP count for each parental lineage pair. We found that the number of detected recombinants with each parental lineage pair exceeded the corresponding expected TP count for most parental lineage pairs. This is not surprising. We expect the vast majority of analyzed sequences (440,307) to be non-recombinants. Based on our estimated false positive rate, we expect approximately 4,400 of the 7,619 detected recombinants to be false positives. However, we cannot reliably allocate expected false positive counts across specific parental lineage pairs.
+We estimated the expected TP count for each parental lineage pair. We found that the number of detected recombinants with each parental lineage pair exceeded the corresponding expected TP count for most parental lineage pairs. This is not surprising, because our expected TP count does not include potential contributions from non-recombinant sequences that were detected as recombinant using our method. However, we cannot reliably allocate expected false positive counts across specific parental lineage pairs.
 
-Recall that during the period when ONS SARS-CoV-2 prevalence estimates were available (until the test window ending Match 19, 2023), we analyzed 387,054 sequences, with 5,006 sequences detected as recombinant with two parental lineages. Using a similar calculation, we expect around 3,800 of these detected recombinants to be false positives. The expected TP count summed across all lineage pairs was 1,390, which is close to the implied TP count ($5006 - 3800 = 1206$). 
+Recall that during the period when ONS SARS-CoV-2 prevalence estimates were available (until the test window ending March 19, 2023), we analyzed 387,054 sequences, with 5006 sequences detected as recombinant with two parental lineages. The vast majority of analyzed sequences should be non-recombinant. If our estimated false positive rate is correct, we would expect around $380,000\times0.01=3800$ of these sequences to be false positive cases. The expected TP count summed across all lineage pairs was 1390, which is only slightly higher than the implied TP count ($5006 - 3800 = 1206$).
 
-Although many detections are likely false positives, across parental lineage pairs, we found a strong positive association between our expected TP estimates and the number of detected recombinants ($r = 0.532$, $p = 8.88\times 10^{-22}$ using a two-sided Pearson correlation test). This indicates that our method is detecting recombinants at a rate that is predictable based on SARS-CoV-2 prevalence and co-infection dynamics between lineages. 
+Although many detections are likely false positives, across parental lineage pairs, we found a strong positive association between the expected TP count and the number of detected recombinants ($r = 0.532$, $p = 8.88\times 10^{-22}$ using a two-sided Pearson correlation test). This indicates that our method is detecting recombinants at a rate that is predictable based on SARS-CoV-2 prevalence and co-infection dynamics between lineages under the null model of independent infections \cite{chin_considerations_2024}.
 
-We then identified parental lineage pairs that were over- or under-represented relative to the overall trend between detected counts and expected TP counts. We identified six under-represented parental lineage pairs (BA.1--BA.1.1, BA.1--BA.1.17.2, BA.1.1--BA.1.17.2, BQ.1.1--CH.1.1, BA.1.1--BA.2, CH.1.1--XBB.1.5). These lineage pairs, except for BA.1.1--BA.2, had lower detected counts than expected TP counts. 
+We then identified parental lineage pairs whose detected counts deviated from the overall trend between detected counts and expected TP counts. We identified six under-represented parental lineage pairs (BA.1--BA.1.1, BA.1--BA.1.17.2, BA.1.1--BA.1.17.2, BQ.1.1--CH.1.1, BA.1.1--BA.2, CH.1.1--XBB.1.5). These lineage pairs, except for BA.1.1--BA.2, had lower detected counts than expected TP counts. 
 
-Under-representation of BA.1--BA.1.1, BA.1--BA.1.17.2, and BA.1.1--BA.1.17.2 recombinants is likely explained by low sensitivity to detect these recombinants. Only a few mutations separate each of these lineage pairs, making recombinant detection difficult (see Figure \ref{fig:sens_vs_edits}). On the contrary, pairwise Hamming distances are high for BQ.1.1--CH.1.1, BA.1.1--BA.2, and CH.1.1--XBB.1.5. However, if resulting recombinant sequences are very similar to one of their parental lineages (e.g., due to breakpoints localizing to certain positions), the sensitivity to detect these recombinants may still be low. 
+Under-representation of BA.1--BA.1.1, BA.1--BA.1.17.2, and BA.1.1--BA.1.17.2 recombinants is likely explained by low sensitivity to detect these recombinants. Only a few mutations separate each of these lineage pairs, making recombinant detection difficult (see Figure \ref{fig:sens_vs_edits}). On the contrary, pairwise Hamming distances are high for BQ.1.1--CH.1.1, BA.1.1--BA.2, and CH.1.1--XBB.1.5. However, if most of the genome is inherited from a single parent, the recombinant can be very similar to one of the parental lineages, so detection sensitivity may still be low. 
 
-Another possibility is that these lineages were circulating in different geographical areas or subpopulations in England, which make co-infection unlikely. Co-infection rates may be lower than expected even under homogeneous mixing, due to within-host interference. Moreover, lineage pairs may differ in their propensity to produce viable recombinants. Finally, the apparent under-representation of these parental lineage pairs could result from estimation error in expected TP counts or sampling variability in detected counts. Estimating the variability of expected TP counts is challenging. We do not have standard errors for ONS SARS-CoV-2 prevalence estimates. Additionally, we must account for correlations in lineage prevalences across test windows. 
+% Actually... exactly this may be possible for BA.1.1--BA.2 recombinants. If I recall correctly BA.1 and BA.2 only really differ in spike. Omicron had basically zero non-spike mutations. You can see fully details here:
+% https://cov-spectrum.org/explore/United%20States/AllSamples/from%3D2022-01-01%26to%3D2022-06-01/variants?nextcladePangoLineage=BA.1.1&nextcladePangoLineage1=BA.2&analysisMode=CompareEquals&
+% There's only 12 non-gap mutations that separate BA.1.1 and BA.2 in ORF1ab, while there's a great many spike mutations
+% It's possible there are a number of recombinants with ORF1ab breakpoints that are not very detectable
 
-We found that these six under-represented lineage pairs co-circulated in England during two intervals, late 2021 to early 2022 (BA.1--BA.1.1, BA.1--BA.1.17.2, BA.1.1--BA.1.17.2, BA.1.1--BA.2) and late 2022 to early 2023 (BQ.1.1--CH.1.1, CH.1.1--XBB.1.5). These two intervals coincide with periods when the estimated recombination proportion was low relative to ONS SARS-CoV-2 prevalence estimates. This indicates that these under-represented lineage pairs contributed to the lower frequency of recombinants during these periods. 
+Under-representation can also occur if parental lineage pairs were segregated to different geographical locations or subpopulations in England, which would make co-infection by these lineage pairs unlikely. Co-infection rates may be lower than expected even under homogeneous mixing, due to within-host interference. Moreover, lineage pairs may differ in their propensity to produce viable recombinants. Finally, the apparent under-representation of these parental lineage pairs could result from estimation error in expected TP counts or sampling variability in detected counts. Estimating the variability of expected TP counts is challenging. We do not have standard errors for ONS SARS-CoV-2 prevalence estimates. Additionally, this would require accounting for correlations in lineage prevalences across test windows. 
 
-Finally, we observed localized clusters of recombination breakpoints within Spike, which is consistent with previous work on recombination hotspots in sarbecoviruses \cite{lytras_exploring_2022}. 
+We found that these six under-represented lineage pairs co-circulated in England during two intervals, late 2021 to early 2022 (BA.1--BA.1.1, BA.1--BA.1.17.2, BA.1.1--BA.1.17.2, BA.1.1--BA.2) and late 2022 to early 2023 (BQ.1.1--CH.1.1, CH.1.1--XBB.1.5). These two intervals coincide with periods when the estimated recombination proportion was low relative to ONS SARS-CoV-2 prevalence estimates. This indicates that these under-represented lineage pairs contributed to the lower frequency of recombinants detected during these periods. 
+
+Aggregating all detected recombination breakpoints, we observed a recombination hotspot within spike, which is consistent with previous work on recombination hotspots in sarbecoviruses \cite{lytras_exploring_2022}. 
 Additionally, we found that breakpoints were enriched in intergenic regions, consistent with their high colocalization with TRS-B sites \cite{yang_characterizing_2021}.
 
 Using RIPPLES, Turakhia et al. found 2.7\% of sampled genomes inferred to have detectable recombinant ancestry \cite{turakhia_pandemic-scale_2022}. This is higher than the proportion of detected recombinants using our method (1.73\%; 95\% CI: [1.69\%, 1.77\%]). This discrepancy is likely attributable to many factors. Turakhia et al. only analyze sequences up to May 2021, before the emergence of XBB. Furthermore, our method cannot detect recombination between sequences in the same lineage, which explains the lower proportion of detected recombinants using our method. Finally, even a modest difference in false positive rates would affect the estimated proportion.
 
-Future work could estimate SARS-CoV-2 prevalence from the frequency of detected recombinants across test windows. In this study, we developed a statistical framework linking prevalence and the expected number of detected recombinants (see Section \ref{sec:expected}). We further showed that detections were correlated with the product of prevalence and parental lineage frequencies. Thus, estimating prevalence is feasible if the method’s sensitivity and false positive rate were known across different scenarios. In our study, we inferred the detection factor and false positive rate from ONS prevalence estimates (see Section \ref{sec:expected}), so these rates are not generalizable outside England or beyond March 2023, when ONS prevalence estimates are no longer available.
+Future work could estimate SARS-CoV-2 prevalence from the frequency of detected recombinants across test windows. In this study, we developed a statistical framework linking disease prevalence and lineage frequencies to the expected number of detected recombinants (see Section \ref{sec:expected}). We further showed that these expected counts were correlated with observed recombinant counts. Estimating prevalence is feasible if the method’s sensitivity and false positive rate were known for the set of query sequences. In our study, we estimated the detection factor and false positive rate using ONS prevalence estimates (see Section \ref{sec:expected}), so these rates are not generalizable outside England or beyond March 2023, when ONS prevalence estimates are no longer available. To estimate the prevalence of SARS-CoV-2 outside of England or beyond March 2023, we would need reliable sensitivity and specificity estimates in these settings. 
 
-Although we focused on SARS-CoV-2 in this study, our HMM is broadly applicable to other RNA and DNA viruses for detecting recombinants. Moreover, by limiting lineage transitions to predefined genome positions, our HMM can be easily adapted to detect reassortment events in segmented viruses such as influenza. Our detection method should perform well on rapidly evolving viruses because we explicitly model novel alleles on recombinant sequences via a pseudo-frequency. 
+Although we focused on SARS-CoV-2 in this study, our HMM is broadly applicable to other RNA and DNA viruses for detecting recombinants. Moreover, by limiting lineage transitions to predefined genome positions, our HMM can be easily adapted to detect reassortment events in segmented viruses such as influenza. Our detection method should also perform well on rapidly evolving viruses because we explicitly model novel alleles on recombinant sequences via a pseudo-frequency. 
 
 \section{Implementation} 
 
@@ -935,7 +930,6 @@ We thank Professor Brian Browning for helpful suggestions on accelerating the fo
 
 We gratefully acknowledge the investigators and laboratories that generated, submitted, and shared sequence data and metadata via GenBank (NCBI), which form the basis of this research.
 
-
 % \section{Author contributions} 
 
 % AR, MAS, TB conceived the study.
@@ -950,10 +944,10 @@ We gratefully acknowledge the investigators and laboratories that generated, sub
 
 \section{Funding} 
 
-This work is supported by NIH NIGMS (R35 GM119774 to T.B.). T.B. is a Howard Hughes Medical Institute Investigator.
+This work is supported by NIH NIGMS R35 GM119774 to T.B. T.B. is a Howard Hughes Medical Institute Investigator.
 
 %%% REFERENCES %%%
-\bibliographystyle{plain}
+\bibliographystyle{plos}
 \bibliography{references}
 
 \end{document}

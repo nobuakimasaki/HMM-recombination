@@ -20,19 +20,34 @@
 
 \usepackage[labelfont=bf,labelsep=period,font=small]{caption}
 
+% cite package, to clean up citations in the main text. Do not remove.
+\usepackage[backend=biber,
+            style=authoryear,
+            maxcitenames=2,   % 3+ authors in text -> et al.
+            mincitenames=1,
+            maxbibnames=10,   % see below: >10 authors in refs -> et al.
+            minbibnames=10,
+            sortcites=true,    % sort multiple citations by year
+            sorting=ynt  
+           ]{biblatex}
+
+\addbibresource{references.bib}
+\newcommand{\citep}{\parencite}
+\newcommand{\citet}{\textcite}
+
 % \usepackage{setspace}
 % \doublespacing
 % \captionsetup{labelfont=bf,labelsep=period,font=doublespacing}
 
-\usepackage{cite}
-% \renewcommand\citeleft{(}
-% \renewcommand\citeright{)}
-% \renewcommand\citeform[1]{\textsl{#1}}
+% \usepackage{cite}
+% % \renewcommand\citeleft{(}
+% % \renewcommand\citeright{)}
+% % \renewcommand\citeform[1]{\textsl{#1}}
 
-\renewcommand\refname{\large References}
-\makeatletter
-\renewcommand{\@biblabel}[1]{\quad#1.}
-\makeatother
+% \renewcommand\refname{\large References}
+% \makeatletter
+% \renewcommand{\@biblabel}[1]{\quad#1.}
+% \makeatother
 
 \usepackage{authblk}
 \renewcommand\Authands{ \& }
@@ -47,39 +62,6 @@
 \usepackage{amssymb}
 \usepackage{booktabs}
 
-% ---------- Your notation macros (copied for consistency) ----------
-\newcommand{\virus}{\mathbf{x}}
-\newcommand{\serum}{\mathbf{y}}
-\newcommand{\viruses}{\mathbf{X}}
-\newcommand{\sera}{\mathbf{Y}}
-\newcommand{\ve}{v}
-\newcommand{\se}{s}
-\newcommand{\ves}{\mathbf{v}}
-\newcommand{\ses}{\mathbf{s}}
-\newcommand{\point}{f_{\scriptscriptstyle \vert}}
-\newcommand{\threshold}{f_{\textstyle \lrcorner}}
-\newcommand{\interval}{f_{\sqcup}}
-\newcommand{\mdssd}{\varphi}
-\newcommand{\virussd}{\sigma_x}
-\newcommand{\serumsd}{\sigma_y}
-\newcommand{\drift}{\mu}
-\newcommand{\tree}{\tau}
-\newcommand{\vn}{n}
-\newcommand{\sn}{k}
-\newcommand{\normal}{\mathcal{N}}
-\newcommand{\bwithin}{\beta_w}
-\newcommand{\bsister}{\beta_s}
-% NOTE: \bother macro in your snippet references \betZ_t (undefined). Keep or fix as needed.
-% \newcommand{\bother}{\betZ_t}
-\newcommand{\incclade}[1]{y_\mathrm{#1}}
-\newcommand{\driftclade}[1]{x_\mathrm{#1}}
-\newcommand{\States}{[M]}
-\setlength{\arraycolsep}{2pt}
-\newcommand{\smalltwomatrix}[2]{\scriptsize \Big( \begin{matrix} #1 \\ #2 \end{matrix} \Big)}
-\newcommand{\smallfourmatrix}[4]{\scriptsize \Big( \begin{matrix} #1 & #2 \\ #3 & #4 \end{matrix} \Big)}
-\newcommand{\twomatrix}[2]{\left( \begin{matrix} #1 \\ #2 \end{matrix} \right)}
-\newcommand{\fourmatrix}[4]{\left( \begin{matrix} #1 & #2 \\ #3 & #4 \end{matrix} \right)}
-
 % ---------- "S" prefix numbering ----------
 % Sections, figures, tables, and equations will be labeled S1, S2, ...
 \renewcommand{\thesection}{S\arabic{section}}
@@ -93,17 +75,20 @@
 
 %%% TITLE %%%
 \title{\vspace{1.0cm} \Large \bf
-Supplementary Information for\\[3pt]
-\textit{Hidden Markov Models Detect Pango Lineage Ancestry of Recombinant SARS-CoV-2 Sequences}
+Supplementary information for\\[3pt]
+\textit{Hidden Markov models detect recombination and ancestry of SARS-CoV-2}
 }
 
-\author[1]{Nobuaki Masaki}
-\author[2]{Trevor Bedford}
+\author[1,2,3,4]{Nobuaki Masaki}
+\author[4,5]{Trevor Bedford}
 
-\affil[1]{Department of Biostatistics, University of Washington, Seattle, WA}
-\affil[2]{Vaccine and Infectious Disease Division, Fred Hutch Cancer Center, Seattle, WA}
+\affil[1]{MRC Laboratory of Medical Sciences, London, UK}
+\affil[2]{Institute of Clinical Sciences, Imperial College Faculty of Medicine, London, UK}
+\affil[3]{Department of Biostatistics, University of Washington, Seattle, WA, USA}
+\affil[4]{Vaccine and Infectious Disease Division, Fred Hutchinson Cancer Center, Seattle, WA, USA}
+\affil[5]{Howard Hughes Medical Institute, Seattle, WA, USA}
 
-\date{} % No date
+\date{}  % optional
 
 \begin{document}
 \maketitle
@@ -146,50 +131,189 @@ Furthermore, we use the scaled version of the forward probabilities, meaning tha
 
 \begin{align*}
     \alpha_{t+1}(j) &= \left(\left(1-\alpha_t(j)\right)\frac{\lambda}{M-1} + \alpha_{t}(j)(1-\lambda)\right)b_{j,t+1}(k_{t+1}) \\
-    &= \left(1-\lambda-\frac{\lambda}{M-1}\right)\alpha_t(j)+\frac{\lambda}{M-1} \\
-    &= \left(1-\frac{M}{M-1}\lambda\right)\alpha_t(j)+\frac{\lambda}{M-1},
+    &= \left(\left(1-\lambda-\frac{\lambda}{M-1}\right)\alpha_t(j)+\frac{\lambda}{M-1}\right) b_{j,t+1}(k_{t+1})  \\
+    &= \left(\left(1-\frac{M}{M-1}\lambda\right)\alpha_t(j)+\frac{\lambda}{M-1}\right)b_{j,t+1}(k_{t+1}),
 \end{align*}
 
 which is constant time. Thus, computing this for all Pango lineages now costs $\mathcal{O}(M)$. 
 
-% This Supplementary Information provides additional methods, figures, and tables supporting the main text.
+\section{Expected recombinant counts}
 
-% \section{Supplementary Methods}
-% Numbered equations are prefixed with “S”. For example,
-% \begin{equation}
-% \label{eq:S1}
-% \mathcal{L} = \prod_{t=1}^{T} p(y_t \mid x_t)\, p(x_t \mid x_{t-1}).
-% \end{equation}
+\subsection{Modeling lineage co-infection}
 
-% \section{Supplementary Figures}
-% \begin{figure}[H]
-%   \centering
-%   % \includegraphics[width=0.8\textwidth]{figs/supp_figure_S1.pdf}
-%   \caption{\textbf{Title for Supplementary Figure S\thefigure.} A concise caption describing the figure contents, methods, and key findings.}
-%   \label{fig:S1}
-% \end{figure}
+We denote the lineage frequency of lineage $i$ in test window $w$, or the proportion of infections attributable to lineage $i$ among all SARS-CoV-2 infections during $w$, as $p_i(w)$. Note that $p_i(w)$ is distinct from the lineage prevalence, which is the overall fraction of the population infected by lineage $i$. We further denote the prevalence of SARS-CoV-2 in window $w$ as $\mathrm{prev}(w)$. Then, it follows that the lineage prevalence of lineage $i$ in window $w$ is $\mathrm{prev}(w)p_i(w)$.
 
-% \section{Supplementary Tables}
-% \begin{table}[H]
-%   \centering
-%   \caption{\textbf{Title for Supplementary Table S\thetable.} A brief description of the table.}
-%   \label{tab:S1}
-%   \begin{tabular}{lcc}
-%     \toprule
-%     Item & Value 1 & Value 2 \\
-%     \midrule
-%     A    & 1.23    & 4.56    \\
-%     B    & 7.89    & 0.12    \\
-%     \bottomrule
-%   \end{tabular}
-% \end{table}
+Under the null model of independent infections described in \textcite{chin_considerations_2024}, the probability of co-infection by lineages $i$ and $j$ ($i < j$) is the product of their lineage prevalences. Thus,
 
-% \section{Supplementary References}
-% Keep the same citation style as the main text
-% If using a shared .bib file:
-% \bibliographystyle{unsrt}
-% \bibliography{references}
-% Or, if journal requires a manual list:
+\begin{align*}
+P(\text{co-infected by }i\text{ and }j) = \left[\mathrm{prev}(w)p_i(w)\right]\left[\mathrm{prev}(w)p_j(w)\right]
+= \mathrm{prev}(w)^2p_i(w)p_j(w).
+\end{align*}
 
+Conditioning on being infected (all of our sequences are from infected individuals) removes one factor of prevalence. We have,
+
+\begin{align*}
+P(\text{co-infected by }i\text{ and }j \mid \text{infected}) = \mathrm{prev}(w) \,p_i(w) \, p_j(w).
+\end{align*}
+
+Next, we denote the number of sequences for which we infer local Pango lineage ancestry in window $w$ as $n(w)$. In our study, $n(w)$ is known. If $X_{i,j}(w)$ denotes the number of sequences among $n(w)$ that are from individuals co-infected by lineages $i$ and $j$, it is reasonable that,
+
+\begin{align*}
+X_{i,j}(w) \sim \mathrm{Binomial}\big( n(w), \mathrm{prev}(w) \, p_i(w) \, p_j(w) \big).
+\end{align*}
+
+\subsection{Modeling recombinant detection}
+
+However, not all sequences from individuals co-infected by lineages $i$ and $j$ will be $i\text{--}j$ recombinants. Furthermore, not all $i\text{--}j$ recombinants will be detected as recombinants using our method. To account for these two factors, we introduce two new parameters $\gamma_{i,j}(w)$ and $s_{i,j}(w)$:
+
+\begin{align*}
+\gamma_{i,j}(w) &=  
+P\left(\text{is }i\text{--}j\text{ recombinant}\mid\text{sequence from individual co-infected by }i\text{ and }j\right), \\
+s_{i,j}(w) &=  
+P\left(\text{detected as recombinant}\mid\text{is }i\text{--}j\text{ recombinant}\right).
+\end{align*}
+
+Since $\gamma_{i,j}(w)$ and $s_{i,j}(w)$ are not separately identifiable, define the combined detection factor
+$\theta_{i,j}(w)=\gamma_{i,j}(w)s_{i,j}(w)$, and assume it is constant across lineage pairs and windows ($\theta_{i,j}(w)=\theta$). 
+
+% To make $\theta$ identifiable, we let $\theta(w) = \theta$ for all $w$. 
+
+Now let $R_{i,j}(w)$ denote the number of detected $i\text{--}j$ recombinants in window $w$. We have,
+
+\begin{align*}
+R_{i,j}(w)\mid X_{i,j}(w)\sim\mathrm{Binomial} \big( X_{i,j}(w), \theta \big).
+\end{align*}
+
+It follows that,
+
+\begin{align*}
+R_{i,j}(w)\sim\mathrm{Binomial} \big( n(w), \mathrm{prev}(w) \, p_i(w) \, p_j(w) \, \theta \big).
+\end{align*}
+
+Taking the expected value, 
+
+\begin{align*}
+\mathrm{E}\left[R_{i,j}(w)\right]
+= n(w) \, \mathrm{prev}(w) \, p_i(w) \, p_j(w) \, \theta.
+\end{align*}
+
+However, we still have not considered the possibility that our method will classify non-recombinant sequences as recombinant. The above $R_{i,j}(w)$ is only comprised of true positive cases, but our method can also misclassify non-recombinant sequences as $i\text{--}j$ recombinants.
+
+To account for this, we define,
+
+\begin{align*}
+\phi = P\left(\text{detected as recombinant}\mid\text{is non-recombinant}\right),
+\end{align*}
+
+which is the false positive rate.
+
+To simplify our derivations, we assume that $Y(w) = n(w) - \sum_{i<j} X_{i,j}(w)$ represents the number of sequences treated as non-recombinant in window $w$. Although this assumption does not hold when $\gamma_{i,j}(w) < 1$ for some $i<j$ (when not all sequences from individuals co-infected by $i$ and $j$ are $i\text{--}j$ recombinants), it is still reasonable because $n(w)$ is typically much larger than $\sum_{i<j} X_{i,j}$. This means that $Y(w) = n(w) - \sum_{i<j} X_{i,j}(w) \approx n(w) - \sum_{i<j} \gamma_{i,j}(w) X_{i,j}(w)$, with $n(w) - \sum_{i<j} \gamma_{i,j}(w) X_{i,j}(w)$ representing the correct number of non-recombinant sequences tested in $w$. 
+
+Then, denoting the set of sequences incorrectly classified as recombinants as $R^{FP}(w)$, we have that,
+
+\begin{align*}
+R^{FP}(w)\mid Y(w)\sim\mathrm{Binomial}\left(Y(w),\phi\right).
+\end{align*}
+
+Taking the expectation and using the tower rule,
+
+\begin{align*}
+\mathrm{E}\left[R^{FP}(w)\right]
+= \mathrm{E}\left[\mathrm{E}[R^{FP}(w)\mid Y(w)]\right] = n(w)\phi\left[1-\mathrm{prev}(w)\sum_{i<j}p_i(w)p_j(w)\right].
+\end{align*}
+
+Then, denoting the total number of recombinants detected in $w$ as $R^{\mathrm{total}}(w) = \sum_{i<j}R_{i,j}(w)+R^{FP}(w)$, 
+
+\begin{align*}
+\mathrm{E}\left[R^{\mathrm{total}}(w)\right]
+&= n(w)\theta\mathrm{prev}(w)\sum_{i<j}{p_i(w)p_j(w)} + n(w)\phi\left[1-\mathrm{prev}(w)\sum_{i<j}p_i(w)p_j(w)\right] \\
+&= n(w)\left[\phi + \left(\theta-\phi\right)\mathrm{prev}(w)\sum_{i<j}p_i(w)p_j(w)\right].
+\end{align*}
+
+Thus,
+
+\begin{align}
+\mathrm{E}\left[\frac{R^{\mathrm{total}}(w)}{n(w)}\right]
+&= \phi + \left(\theta-\phi\right)\mathrm{prev}(w)\sum_{i<j}p_i(w)p_j(w).
+\label{eq:recombinant_rate}
+\end{align}
+
+\subsection{Estimating detection parameters}
+
+We next want to estimate $\theta$ and $\phi$. Recall that $n(w)$ is known. We obtain our estimate of SARS-CoV-2 prevalence within window $w$, $\widehat{\mathrm{prev}}(w)$, by averaging daily ONS SARS-CoV-2 prevalence estimates within window $w$. We obtain estimates for our lineage proportions, $\hat{p}_i(w)$ and $\hat{p}_j(w)$, by taking the number of sequences that belong to lineage $i$ and $j$ respectively in window $w$, and dividing this by the total number of sequences in window $w$. 
+
+Let $x_w = \widehat{\text{prev}}(w)\sum_{i<j}\hat p_i(w) \hat p_j(w)$ and then equate $\mathrm{E}\left[\frac{R^{\mathrm{total}}(w)}{n(w)}\right]$ with $\frac{R^{\mathrm{total}}(w)}{n(w)}$, which is the detected recombinant proportion in $w$ using our method described in the main paper. Now we have,
+
+\begin{align}
+\frac{R^{\mathrm{total}}(w)}{n(w)}
+&= \phi + \big(\theta -\phi \big)x_w.
+\end{align}
+
+We can estimate $\phi$ and $\theta$ by regressing $\frac{R^{\mathrm{total}}(w)}{n(w)}$ on $x_w$. Denoting the fitted least squares intercept and slope as $\hat\alpha$ and $\hat\beta$ respectively, we calculate $\hat\phi = \hat\alpha$ and $\hat\theta = \hat\alpha + \hat\beta$. 
+
+\subsection{Expected true positive rate}
+
+Notice that in equation \ref{eq:recombinant_rate}, the expected proportion of only true positive cases is,
+
+\begin{align*}
+\mathrm{E}\left[\frac{\sum_{i<j} R_{i,j}(w)}{n(w)}\right]
+&= \theta\mathrm{prev}(w)\sum_{i<j}p_i(w)p_j(w).
+\label{eq:recombinant_positive_rate}
+\end{align*}
+
+Then, denoting our estimate of the expected true positive proportion in each window $w$ as $\hat\rho(w)$, 
+\begin{align}
+\hat{\rho}(w) = \hat \theta  \widehat{\mathrm{prev}}(w)\sum_{i<j}\hat p_i(w)\hat p_j(w).
+\end{align}
+
+In our results section, we compare this with the detected recombinant proportion in window $w$ using our method described in the main paper. This detected proportion reflects the recombinants identified by our method and therefore includes both true positives and false positives. Thus, we expect the detected recombinant proportion to exceed $\hat{\rho}(w)$ in each window $w$. We are more interested in the correlation between these two quantities across windows. 
+
+Although $\theta$ is estimated using the detected recombinant proportions across windows, this does not constitute meaningful double use of the data. The regression is only used to estimate a single global scaling parameter $\theta$, assumed constant across all windows, and does not affect the strength of the linear association between $\hat{\rho}(w)$ and the detected recombinant proportion across windows.
+
+\subsection{Expected counts by lineage pair}
+
+Finally, we obtain an estimate for the expected recombinant count by parental lineage pair. Recall that $R_{i,j}(w)$ represents the true positive $i\text{--}j$ recombinant count in $w$. Then, letting $\mathcal{W}$ be our set of test windows, we can denote the total true positive $i\text{--}j$ recombinant count across all windows as $R_{i,j} = \sum_{w\in\mathcal{W}}R_{i,j}(w)$. We have that $\mathrm{E}\left[R_{i,j}\right] = \theta\sum_{w\in\mathcal{W}}n(w)\mathrm{prev}(w)p_i(w)p_j(w)$. Then,
+
+\begin{align}
+\hat{\mathrm{E}}\left[R_{i,j}\right]
+=  \hat \theta  \sum_{w\in\mathcal{W}} n(w)\widehat{\mathrm{prev}}(w)\hat p_i(w)\hat p_j(w).
+\end{align}
+
+In our results section, we compare this estimate with the number of detected recombinants that have $i$ and $j$ as parental lineages. Because we do not allocate false positives across lineage pairs, $\hat{\mathrm{E}}[R_{i,j}]$ represents a true positive expectation, whereas the observed counts may include false positives. Thus, it is reasonable to expect that the observed count of $i\text{--}j$ recombinants will exceed $\hat{\mathrm{E}}[R_{i,j}]$. We are instead interested in the correlation between these two quantities across parental lineage pairs $i<j$.
+
+\section{Supplementary Figures}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/hmm/phi_regression.png}
+  \caption[Phi regression]{
+Relationship between lineage co-circulation and detected recombinant proportion.
+Each point corresponds to a time window $w$.
+The horizontal axis shows
+$x_w = \widehat{\mathrm{prev}}(w)\sum_{i<j}\hat p_i(w)\hat p_j(w)$,
+where $\widehat{\mathrm{prev}}(w)$ is the window-averaged ONS SARS-CoV-2 prevalence
+and $\hat p_i(w)$ are estimated lineage proportions.
+The vertical axis shows the detected recombinant proportion
+$R^{\mathrm{total}}(w)/n(w)$.
+The fitted linear regression corresponds to
+$R^{\mathrm{total}}(w)/n(w) = \hat\phi + (\hat\theta-\hat\phi)x_w$,
+with intercept $\hat\phi$ and slope $\hat\theta-\hat\phi$.
+}
+  \label{fig:phi_reg}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{figures/hmm/mosaic.png}
+  \caption[Mosaic sequences]{
+    Local Pango lineage ancestry of recombinant sequences detected with lineage pairs BQ.1.1--CH.1.1, BA.1.1--BA.2, CH.1.1--XBB.1.5, BA.5.2--BA.5.2.1, BE.1.1--BQ.1.1, and AY.4--AY.4.2. Each row in each panel represents a detected recombinant sequence, with colors representing regions of the genome with distinct local Pango lineage ancestry. The lineage pairs BQ.1.1--CH.1.1, BA.1.1--BA.2, CH.1.1--XBB.1.5 are three of the under-represented lineage pairs, and the remaining lineage pairs are plotted for comparison. Detected sequences were filtered to the period in which ONS prevalence estimates were available.
+  }
+  \label{fig:lineage_mosaic}
+\end{figure}
+
+\begin{refcontext}[sorting=nyt] % Name → Year → Title (alphabetical by author)
+\printbibliography[title={References}]
+\end{refcontext}
 
 \end{document}
+
